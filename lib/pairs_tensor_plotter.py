@@ -1,0 +1,149 @@
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
+
+
+def plot_raw_scores(scores, outdir, save_name = "raw_scores.png"):
+    
+    score_range = [np.min(scores),np.max(scores)]
+    if np.isneginf(score_range[0]):
+        score_range[0] = np.min(scores[np.isfinite(scores)])
+    cmap = plt.get_cmap("Reds",50)
+    cmap.set_bad("grey")
+
+    plt.figure()
+    plt.subplot(231)
+    plt.imshow(scores[0,:,:],vmin=score_range[0],vmax=score_range[1],cmap=cmap)
+    plt.title("Model 1; A-->B")
+
+    plt.subplot(232)
+    plt.imshow(scores[1,:,:],vmin=score_range[0],vmax=score_range[1],cmap=cmap)
+    plt.title("Model 2; B-->A")
+    
+    plt.subplot(233)
+    plt.imshow(scores[2,:,:],vmin=score_range[0],vmax=score_range[1],cmap=cmap)
+    plt.title("Model 3; Co-clustered")
+    
+    plt.subplot(234)
+    plt.imshow(scores[3,:,:],vmin=score_range[0],vmax=score_range[1],cmap=cmap)
+    plt.title("Model 4; Cousins")
+    
+    plt.subplot(235)
+    plt.imshow(scores[4,:,:],vmin=score_range[0],vmax=score_range[1],cmap=cmap)
+    plt.title("Model 5; Garbage")
+    
+    plt.savefig(os.path.join(outdir, save_name))
+    plt.close()
+
+    return
+
+
+def plot_best_model(scores, outdir, snv_ids=None, save_name="best_models.png"):
+
+    best_models = np.argmax(scores,axis=0)+1
+    best_models = best_models - np.tril(best_models,k=-1)
+
+    plt.figure(figsize=(16,10))
+    cMap = ListedColormap(['black', '#984ea3', '#377eb8', '#4daf4a', '#e41a1c', '#ff7f00'])
+    plt.imshow(best_models, vmin=-0.5, vmax=5.5, cmap=cMap)
+    plt.title("Ancestry Matrix",fontsize=20)
+    if snv_ids is not None:
+        plt.xticks(ticks=(np.linspace(0,len(snv_ids)-1,len(snv_ids))+0.5),labels=snv_ids, fontsize=12, rotation=90)
+        plt.yticks(ticks=(np.linspace(0,len(snv_ids)-1,len(snv_ids))+0.5),labels=snv_ids, fontsize=12)
+        plt.grid(markevery=1)
+    cbar = plt.colorbar()
+    cbar.ax.get_yaxis().set_ticks([0,1,2,3,4,5])
+    cbar.ax.get_yaxis().set_ticklabels(['N/A','Y->X','X->Y','Co-incident','Branching', 'ISA Violation'],fontsize=20)
+    plt.tight_layout()
+    plt.savefig(os.path.join(outdir, save_name))
+    plt.close()
+
+    return
+
+
+def plot_best_vs_second_best(scores, outdir, save_name="best_model_score_comparisons.png"):
+    #Note: why did I make this??
+    best_score_vs_second_best_score = np.diff(np.sort(scores,axis=0)[3:,:,:],axis=0).reshape(scores.shape[1:])
+    
+    fig = plt.figure()
+    ax = fig.add_axes([0.1,0.1,0.8,0.8])
+    plt.imshow(-best_score_vs_second_best_score)
+    plt.title("Best vs second best model scores")
+    plt.colorbar()
+    plt.savefig(os.path.join(outdir, save_name))
+    plt.close()
+
+    return
+
+
+def plot_raw_counts(n11,n10,n01,n00,outdir,save_name="raw_pairwise_counts.png"):
+
+    fig = plt.figure()
+    fig.add_axes([0.05,0.55,0.4,0.4])
+    plt.imshow(n11[:,:])
+    plt.title("Counts: [1 1]")
+    plt.colorbar()
+
+    fig.add_axes([0.55,0.55,0.4,0.4])
+    plt.imshow(n10[:,:])
+    plt.title("Counts: [1 0]")
+    plt.colorbar()
+
+    fig.add_axes([0.05,0.05,0.4,0.4])
+    plt.imshow(n01[:,:])
+    plt.title("Counts: [0 1]")
+    plt.colorbar()
+
+    fig.add_axes([0.55,0.05,0.4,0.4])
+    plt.imshow(n00[:,:])
+    plt.title("Counts: [0 0]")
+    plt.colorbar()
+
+    plt.savefig(os.path.join(outdir + save_name))
+    plt.close()
+
+    return
+
+
+def plot_anc_n_cocl_comparisons(scores,outdir,save_name="anc_to_cocluster.png"):
+
+    nSSMs = scores.shape[1]
+    #Note: this used to have a divide by scores[2] here as well, but I got rid of it because I don't think 
+    #it makes sense for logged scores.
+    M1_to_M3 = ((scores[0,:,:] - scores[2,:,:])).reshape(nSSMs,nSSMs)
+    M2_to_M3 = ((scores[1,:,:] - scores[2,:,:])).reshape(nSSMs,nSSMs)
+    max_diff = np.max(np.abs([M1_to_M3, M2_to_M3]))
+    plot_range = [-max_diff, max_diff]
+
+    fig = plt.figure()
+    ax = fig.add_axes([0.1,0.325,0.35,0.35])
+    plt.imshow(M1_to_M3, cmap='seismic', vmin = plot_range[0], vmax = plot_range[1])
+    plt.title("(M1-M3)")
+    plt.xlabel("B")
+    plt.ylabel("A")
+    plt.colorbar()
+    ax = fig.add_axes([0.55,0.325,0.35,0.35])
+    plt.imshow(M2_to_M3, cmap='seismic', vmin = plot_range[0], vmax = plot_range[1])
+    plt.title("(M2-M3)")
+    plt.xlabel("B")
+    plt.ylabel("A")
+    plt.colorbar()
+    plt.savefig(os.path.join(outdir,save_name))
+    plt.close()
+    return
+
+
+def plot_anc_n_dec_comparisons(scores,outdir,save_name="anc_to_dec.png"):
+    nSSMs = scores.shape[1]
+    comp = ((scores[0,:,:] - scores[1,:,:])).reshape(nSSMs,nSSMs)
+    fig = plt.figure()
+    ax = fig.add_axes([0.1,0.1,0.8,0.8])
+    plt.imshow(comp,cmap='seismic')
+    plt.title("(M1-M2)")
+    plt.xlabel("B")
+    plt.ylabel("A")
+    plt.colorbar()
+    plt.savefig(os.path.join(outdir,save_name))
+    plt.close()
+    return
