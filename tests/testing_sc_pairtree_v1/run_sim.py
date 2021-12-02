@@ -31,9 +31,9 @@ def _parse_args():
         help='Proportion of non-burnin trees to write as output.')
     parser.add_argument('-K', dest='n_clust', type=int, default=30,
         help='Number of subclones to simulate.')
-    parser.add_argument('-C', dest='n_cells', type=int, default=10,
+    parser.add_argument('-C', dest='n_cells_p_c', type=int, default=10,
         help='Number of cells per subclone.')
-    parser.add_argument('-M', dest='n_muts', type=int, default=10,
+    parser.add_argument('-M', dest='n_muts_p_c', type=int, default=10,
         help='Number of mutations per subclone.')
     parser.add_argument('-A', dest='ADO', type=float, default=0.5,
         help='Allelic dropout rate.')
