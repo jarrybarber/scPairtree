@@ -3,45 +3,49 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 
+from common import Models
 
-def plot_raw_scores(scores, outdir, save_name = "raw_scores.png"):
+def plot_raw_scores(tensor, show_fig=False, save_fig=True, outdir="", save_name = "raw_scores.png"):
     
-    score_range = [np.min(scores),np.max(scores)]
+    score_range = [np.min(tensor),np.max(tensor)]
     if np.isneginf(score_range[0]):
-        score_range[0] = np.min(scores[np.isfinite(scores)])
+        score_range[0] = np.min(tensor[np.isfinite(tensor)])
     cmap = plt.get_cmap("Reds",50)
     cmap.set_bad("grey")
 
-    plt.figure()
+    plt.figure(figsize=(8,6))
     plt.subplot(231)
-    plt.imshow(scores[0,:,:],vmin=score_range[0],vmax=score_range[1],cmap=cmap)
-    plt.title("Model 1; A-->B")
+    plt.imshow(tensor[:,:,Models.A_B],vmin=score_range[0],vmax=score_range[1],cmap=cmap)
+    plt.title("A-->B")
 
     plt.subplot(232)
-    plt.imshow(scores[1,:,:],vmin=score_range[0],vmax=score_range[1],cmap=cmap)
-    plt.title("Model 2; B-->A")
+    plt.imshow(tensor[:,:,Models.B_A],vmin=score_range[0],vmax=score_range[1],cmap=cmap)
+    plt.title("B-->A")
     
     plt.subplot(233)
-    plt.imshow(scores[2,:,:],vmin=score_range[0],vmax=score_range[1],cmap=cmap)
-    plt.title("Model 3; Co-clustered")
+    plt.imshow(tensor[:,:,Models.cocluster],vmin=score_range[0],vmax=score_range[1],cmap=cmap)
+    plt.title("Co-clustered")
     
     plt.subplot(234)
-    plt.imshow(scores[3,:,:],vmin=score_range[0],vmax=score_range[1],cmap=cmap)
-    plt.title("Model 4; Cousins")
+    plt.imshow(tensor[:,:,Models.diff_branches],vmin=score_range[0],vmax=score_range[1],cmap=cmap)
+    plt.title("Different branches")
     
     plt.subplot(235)
-    plt.imshow(scores[4,:,:],vmin=score_range[0],vmax=score_range[1],cmap=cmap)
-    plt.title("Model 5; Garbage")
+    plt.imshow(tensor[:,:,Models.garbage],vmin=score_range[0],vmax=score_range[1],cmap=cmap)
+    plt.title("Garbage")
     
-    plt.savefig(os.path.join(outdir, save_name))
+    if show_fig:
+        plt.show()
+    if save_fig:
+        plt.savefig(os.path.join(outdir, save_name))
     plt.close()
 
     return
 
 
-def plot_best_model(scores, outdir, snv_ids=None, save_name="best_models.png"):
+def plot_best_model(tensor, show_fig=False, save_fig=True, outdir="", snv_ids=None, save_name="best_models.png"):
 
-    best_models = np.argmax(scores,axis=0)+1
+    best_models = np.argmax(tensor,axis=2)+1
     best_models = best_models - np.tril(best_models,k=-1)
 
     plt.figure(figsize=(16,10))
@@ -54,9 +58,12 @@ def plot_best_model(scores, outdir, snv_ids=None, save_name="best_models.png"):
         plt.grid(markevery=1)
     cbar = plt.colorbar()
     cbar.ax.get_yaxis().set_ticks([0,1,2,3,4,5])
-    cbar.ax.get_yaxis().set_ticklabels(['N/A','Y->X','X->Y','Co-incident','Branching', 'ISA Violation'],fontsize=20)
+    cbar.ax.get_yaxis().set_ticklabels(['N/A','ISA Violation','Co-incident','Y->X','X->Y','Branching'],fontsize=20)
     plt.tight_layout()
-    plt.savefig(os.path.join(outdir, save_name))
+    if show_fig:
+        plt.show()
+    if save_fig:
+        plt.savefig(os.path.join(outdir, save_name))
     plt.close()
 
     return
