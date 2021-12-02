@@ -79,12 +79,10 @@ def create_the_data(tree_params):
     print("False negative rate:", FN / (1-dropout_rate))
 
     snv_start = 0
-    i = 0
-    for node_i in [tree[node_name] for node_name in node_ordering]:
+    for i, node_i in enumerate([tree[node_name] for node_name in node_ordering]):
         snv_end = snv_start + node_i['nSNVs']
         cell_start = 0
-        j=0
-        for node_j in [tree[node_name] for node_name in node_ordering]:
+        for j, node_j in enumerate([tree[node_name] for node_name in node_ordering]):
             cell_end = int(cell_start + np.round(node_j['phi']*n_cells))
             if ancestory_matrix[i,j] == 1:
                 P0 = FN
@@ -101,9 +99,7 @@ def create_the_data(tree_params):
             data[cell_start:cell_end, snv_start:snv_end] = this_batch
             real_values[cell_start:cell_end, snv_start:snv_end] = ancestory_matrix[i,j]
             cell_start = cell_end
-            j+=1
         snv_start = snv_end
-        i+=1
     
     return data, real_values
 
@@ -147,14 +143,6 @@ def save_the_data(data,fn):
     return
 
 
-# def make_data_fig(data,fn):
-#     fig = plt.figure()
-#     ax = fig.add_axes([0.1, 0.1, 0.8, 0.8])
-#     plt.imshow(data)
-#     plt.savefig(fn)
-#     return
-
-
 def get_args():
     args = sys.argv
     if len(args)==1:
@@ -174,7 +162,6 @@ def main():
 
     data, real_values = create_the_data(tree_params)
     anc_mat = create_anc_mat(tree_params)
-    # make_data_fig(data,sample_params_to_load+'.png')
     save_the_data(np.transpose(data), os.path.join(sim_dat_dir, tree_name+'_data.txt'))
     save_the_data(np.transpose(real_values), os.path.join(sim_dat_dir, tree_name+'_real.txt'))
     save_the_data(anc_mat, os.path.join(sim_dat_dir, tree_name+"_ancMat.txt"))
