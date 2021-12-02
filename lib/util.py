@@ -2,6 +2,19 @@ import os
 import numpy as np
 from numba import njit
 from scipy.special import loggamma, logsumexp
+from collections import namedtuple
+
+from common import Models
+
+#Note, this may work better as a pandas object so that any sorting of 
+#snvs and cells automatically works when sorting data matrix.
+_Data = namedtuple('_Data', (
+  'data',
+  'n_snvs',
+  'n_cells',
+  'snv_ids',
+  #'cell_ids' #Note implemented yet
+))
 
 #Should work as long as util.py is in the bin folder
 LIB_DIR  = os.path.dirname(os.path.realpath(__file__))
@@ -12,18 +25,17 @@ RUNS_DIR = os.path.join(BASE_DIR,"runs")
 
 
 def load_sim_data(fn):
-    #convert output to pandas?
     data = []
-    ssm_ids = []
+    snv_ids = []
     count = 0
     to_open = os.path.join(DATA_DIR,"simulated",fn)
     with open(to_open,'r') as f:
         for row in f.readlines():
             entries = row.replace("\n","").split("\t")
             data.append([int(i) for i in entries])
-            ssm_ids.append('s' + str(count))
+            snv_ids.append('s' + str(count))
             count += 1
-    return np.array(data), np.array(ssm_ids)
+    return _Data(data=np.array(data),n_snvs=len(data),n_cells=len(data[0]),snv_ids=snv_ids)
 
 
 def determine_pairwise_occurance_counts(data):
@@ -67,6 +79,73 @@ def log_tec(n,i,j,k):
 
 def log_qec(n,i,j,k,m):
     return loggamma(n+1) - loggamma(i+1) - loggamma(j+1) - loggamma(k+1) - loggamma(m+1)
+
+@njit
+def softmax(V):
+    #Note: taken from Jeff's util code
+    B = np.max(V)
+    log_sum = B + np.log(np.sum(np.exp(V - B)))
+    log_softmax = V - log_sum
+    smax = np.exp(log_softmax)
+    # The vector sum will be close to 1 at this point, but not close enough to
+    # make np.random.choice happy -- sometimes it will issue the error
+    # "probabilities do not sum to 1" from mtrand.RandomState.choice.
+    # To fix this, renormalize the vector.
+    smax /= np.sum(smax)
+    #assert np.isclose(np.sum(smax), 1)
+    return smax
+
+@njit
+def make_ancestral_from_adj(adj, check_validity=False):
+    #Note: taken from Jeff's util code.
+    K = len(adj)
+    root = 0
+
+    if check_validity:
+        # By default, disable checks to improve performance.
+        assert np.all(1 == np.diag(adj))
+        expected_sum = 2 * np.ones(K)
+        expected_sum[root] = 1
+        assert np.array_equal(expected_sum, np.sum(adj, axis=0))
+
+    Z = np.copy(adj)
+    np.fill_diagonal(Z, 0)
+    stack = [root]
+    while len(stack) > 0:
+        P = stack.pop()
+        C = np.flatnonzero(Z[P])
+        if len(C) == 0:
+            continue
+        # Set ancestors of `C` to those of their parent `P`.
+        C_anc = np.copy(Z[:,P])
+        C_anc[P] = 1
+        # Turn `C_anc` into column vector.
+        Z[:,C] = np.expand_dims(C_anc, 1)
+        stack += list(C)
+    np.fill_diagonal(Z, 1)
+
+    if check_validity:
+        assert np.array_equal(Z[root], np.ones(K))
+    return Z
+
+@njit
+def compute_node_relations(adj, check_validity=False):
+    #Note: taken from Jeff's util code.
+    #May make sense to move somewhere else... Perhaps some tree or pairs tensor util.
+    K = len(adj)
+    anc = make_ancestral_from_adj(adj, check_validity)
+    np.fill_diagonal(anc, 0)
+
+    R = np.full((K, K), Models.diff_branches, dtype=np.int8)
+    for idx in range(K):
+        R[idx][anc[idx]   == 1] = Models.A_B
+        R[idx][anc[:,idx] == 1] = Models.B_A
+    np.fill_diagonal(R, Models.cocluster)
+
+    if check_validity:
+        assert np.all(R[0]   == Models.A_B)
+        assert np.all(R[:,0] == Models.B_A)
+    return R
 
 
 # From Jeff <3 (Not used at the moment. Still using scipy for logsumexp and loggamma)
