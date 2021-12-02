@@ -39,8 +39,6 @@ def _parse_args():
         help='Allelic dropout rate.')
     parser.add_argument('P', dest='FPR', type=float, default=0.005,
         help='False positive rate.')
-    parser.add_argument('data_fn')
-    parser.add_argument('results_fn')
     args = parser.parse_args()
     return args
 
