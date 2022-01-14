@@ -65,21 +65,6 @@ def calc_tensor_prob(tensor):
     assert not np.any(tensor==0)
     return np.sum(logsumexp(tensor,axis=0))
 
-
-
-##OLD STUFF FROM BEFORE QUADRATURE###
-def log_bec(n,i,j):
-    #binomial expansion coefficient - logged form:
-    return loggamma(n+1) - loggamma(i+1) - loggamma(j+1)
-
-
-def log_tec(n,i,j,k):
-    return loggamma(n+1) - loggamma(i+1) - loggamma(j+1) - loggamma(k+1)
-
-
-def log_qec(n,i,j,k,m):
-    return loggamma(n+1) - loggamma(i+1) - loggamma(j+1) - loggamma(k+1) - loggamma(m+1)
-
 @njit
 def softmax(V):
     #Note: taken from Jeff's util code
@@ -147,6 +132,30 @@ def compute_node_relations(adj, check_validity=False):
         assert np.all(R[:,0] == Models.B_A)
     return R
 
+def remove_rowcol(arr, indices):
+    #NOTE: taken from Jeff's util code
+    '''Remove rows and columns at `indices`.'''
+    # Calling `np.delete` with `indices` as an empty array produces an exception
+    # in Python 3.8 but not 3.7.
+    if len(indices) == 0:
+        return np.copy(arr)
+    # Using a mask requires only creating a new array once (and then presumably
+    # another array to apply the mask). Calling np.delete() multiple times would
+    # create separate arrays for every element in `indices`.
+    shape = list(arr.shape)
+    # Must convert to list *before* array, as indices is often a set, and
+    # converting a set directly to an array yields a dtype of `object` that
+    # contains the set. It's really weird.
+    indices = np.array(list(indices))
+    # Only check the first two dimensions, as we ignore all others.
+    assert np.all(0 <= indices) and np.all(indices < min(shape[:2]))
+
+    for axis in (0, 1):
+        arr = np.delete(arr, indices, axis=axis)
+        shape[axis] -= len(indices)
+
+    assert np.array_equal(arr.shape, shape)
+    return arr
 
 # From Jeff <3 (Not used at the moment. Still using scipy for logsumexp and loggamma)
 # @njit

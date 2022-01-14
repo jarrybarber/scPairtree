@@ -69,11 +69,11 @@ def _generate_tree_structure(n_clust):
 
     return adj_mat, anc_mat
 
-def generate_simulated_data(n_clust,n_cells,n_muts,FPR,ADO):
+def generate_simulated_data(n_clust,n_cells,n_muts,FPR,ADO,cell_alpha,mut_alpha):
     adj_mat, anc_mat = _generate_tree_structure(n_clust)
     
-    cell_assignments = _assign_to_subclones(n_cells, n_clust, a=0.1)
-    mut_assignments  = _assign_to_subclones(n_muts,  n_clust, a=1)
+    cell_assignments = _assign_to_subclones(n_cells, n_clust, a=cell_alpha)
+    mut_assignments  = _assign_to_subclones(n_muts,  n_clust, a=mut_alpha)
 
     real_data = _generate_error_free_data(anc_mat,cell_assignments,mut_assignments)
     data, _ = _apply_errors(real_data,FPR,ADO)
@@ -98,6 +98,10 @@ def get_args():
         help='Allelic dropout rate.')
     parser.add_argument('P', dest='FPR', type=float, default=0.005,
         help='False positive rate.')
+    parser.add_argument('--cell-alpha', dest='cell_alpha', type=float, default=0.5,
+        help='Dirichlet distribution parameter for distributing cells to the clusters.')
+    parser.add_argument('--mut-alpha', dest='mut_alpha', type=float, default=1.,
+        help='Dirichlet distribution parameter for distributing mutations to the clusters.')
     parser.add_argument('--sim-isav', dest='ISAs', action='store_true',
         help='Whether or not to simualate ISA violations.')
     parser.add_argument('--save-data', dest='save_data', action='store_true',
@@ -118,7 +122,9 @@ def main():
         args.n_cells,
         args.n_muts,
         args.FPR,
-        args.ADO
+        args.ADO,
+        args.cell_alpha,
+        args.mut_alpha
         )
 
     if args.save_data:

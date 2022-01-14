@@ -4,6 +4,8 @@ import argparse
 import numpy as np
 import pickle
 import random
+import multiprocessing
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'lib'))
 from error_rate_estimator import estimate_error_rates
@@ -29,55 +31,95 @@ def _parse_args():
         help='Proportion of samples to discard from beginning of each chain.')
     parser.add_argument('--thinned-frac', dest='thinned_frac', type=float, default=1,
         help='Proportion of non-burnin trees to write as output.')
-    parser.add_argument('-K', dest='n_clust', type=int, default=30,
+    parser.add_argument('-K', dest='n_clust', type=int, default=20,
         help='Number of subclones to simulate.')
-    parser.add_argument('-C', dest='n_cells_p_c', type=int, default=10,
-        help='Number of cells per subclone.')
-    parser.add_argument('-M', dest='n_muts_p_c', type=int, default=10,
-        help='Number of mutations per subclone.')
+    parser.add_argument('-C', dest='n_cell', type=int, default=200,
+        help='Number of cells to simulate in dataset')
+    parser.add_argument('-M', dest='n_mut', type=int, default=20,
+        help='Number of mutations to simulate in dataset')
     parser.add_argument('-A', dest='ADO', type=float, default=0.5,
         help='Allelic dropout rate.')
     parser.add_argument('-P', dest='FPR', type=float, default=0.005,
         help='False positive rate.')
+    parser.add_argument('--cell-alpha', dest='cell_alpha', type=float, default=0.5,
+        help='Dirichlet distribution parameter for distributing cells to the clusters.')
+    parser.add_argument('--mut-alpha', dest='mut_alpha', type=float, default=1,
+        help='Dirichlet distribution parameter for distributing mutations to the clusters.')
     args = parser.parse_args()
     return args
 
-def save_data(data,true_tree,FPR,FNR,pairs_tensor,trees,save_dir):
+def save_data(args,data,true_tree,FPR,FNR,pairs_tensor,trees,runtimes,save_dir):
     if not os.path.isdir(save_dir):
         os.makedirs(save_dir)
     with open(os.path.join(save_dir,"results"),'wb') as f:
+        pickle.dump(args,f)
         pickle.dump(data,f)
         pickle.dump(true_tree,f)
         pickle.dump(FPR,f)
         pickle.dump(FNR,f)
         pickle.dump(pairs_tensor,f)
         pickle.dump(trees,f)
+        pickle.dump(runtimes,f)
     return
 
 def main():
     args = _parse_args()
     save_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'out', 'sims_v_sc_pairtree')
 
-    seed = 1234
+    assert args.n_clust <= args.n_cell
+    assert args.n_clust <= args.n_mut
+
+    if args.seed is not None:
+        seed = args.seed
+    else:
+        # Maximum seed is 2**32 - 1.
+        # seed = np.random.randint(2**32)
+        seed = 1234
     np.random.seed(seed)
     random.seed(seed)
 
+    parallel = args.parallel if args.parallel is not None else multiprocessing.cpu_count()
+    if args.tree_chains is not None:
+        tree_chains = args.tree_chains
+    else:
+        # We sometimes set `parallel = 0` to disable the use of multiprocessing,
+        # making it easier to read debug messages.
+        tree_chains = max(1, parallel)
+
     
-    n_cells = args.n_clust*args.n_cells_p_c
-    n_muts = args.n_clust*args.n_muts_p_c
-    this_save_dir = os.path.join(save_dir,"clsts{}_muts{}_cells{}_FPR{}_ADO{}".format(str(args.n_clust),str(n_muts),str(n_cells),str(args.FPR).replace('.','p'),str(args.ADO).replace('.','p')))
-    data, true_tree = generate_simulated_data(args.n_clust,n_cells,n_muts,args.FPR,args.ADO)
-    est_FPR, est_FNR = estimate_error_rates(data,subsample_cells=200,subsample_snvs=100)
+    this_save_dir = os.path.join(save_dir,"clsts{}_muts{}_cells{}_FPR{}_ADO{}_cell-alpha{}_mut-alpha{}_seed{}".format(str(args.n_clust),str(args.n_mut),str(args.n_cell),str(args.FPR).replace('.','p'),str(args.ADO).replace('.','p'),str(args.cell_alpha).replace('.','p'),str(args.mut_alpha).replace('.','p'),str(seed)))
+    data, true_tree = generate_simulated_data(args.n_clust, 
+                                                args.n_cell, 
+                                                args.n_mut, 
+                                                args.FPR, 
+                                                args.ADO, 
+                                                args.cell_alpha, 
+                                                args.mut_alpha
+                                                )
+    s = time.time()
+    est_FPR, est_FNR = estimate_error_rates(data, subsample_cells=200, subsample_snvs=40)
+    e = time.time()
+    rt_ER_est = e-s
+    s = time.time()
     pairs_tensor = calc_ancestry_tensor(data, est_FPR, est_FNR, verbose=False, scale_integrand=True)
     pairs_tensor = complete_tensor(pairs_tensor)
-    trees = sample_trees(data, pairs_tensor, FPR=est_FPR, FNR= est_FNR, 
-        trees_per_chain=n_muts*500, 
-        burnin=0.5, 
-        nchains=4, 
-        thinned_frac=0.1, 
-        seed=seed, 
-        parallel=4)
-    save_data(data,true_tree,est_FPR,est_FNR,pairs_tensor,trees, this_save_dir)
+    e = time.time()
+    rt_PT_calc = e-s
+    s = time.time()
+    trees = sample_trees(data, 
+                        pairs_tensor, 
+                        FPR=est_FPR, 
+                        FNR= est_FNR, 
+                        trees_per_chain=args.trees_per_chain, 
+                        burnin=args.burnin, 
+                        nchains=tree_chains, 
+                        thinned_frac=args.thinned_frac, 
+                        seed=seed, 
+                        parallel=parallel)
+    e = time.time()
+    rt_sample_trees = e-s
+    runtimes = {"ER_est": rt_ER_est, "pairs_tensor_calc": rt_PT_calc, "tree_sampling":rt_sample_trees}
+    save_data(args, data, true_tree, est_FPR, est_FNR, pairs_tensor, trees, runtimes, this_save_dir)
                 
     return
 

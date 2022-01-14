@@ -8,6 +8,7 @@ from progressbar import progressbar
 import hyperparams as hparams
 import util
 import common
+from common import Models, NUM_MODELS
 
 from collections import namedtuple
 TreeSample = namedtuple('TreeSample', (
@@ -27,26 +28,42 @@ def _calc_tree_llh(data, anc, alpha, beta):
 
     #First, I need to calculate the number of true positives/negatives, and false positives/negatives for
     #the case of each cell being assigned to each node.
+    s = time.time()
+    #Note: matrix multiplication is optimized when the elements are floats, but not if they are integers.
+    # --> Swap to using floats for these calcs.
+    anc_comp = anc[1:,1:].astype(float)
+    not_anc_comp = np.logical_not(anc_comp).astype(float)
+    D_comp = (data == 1).astype(float)
+    not_D_comp = (data == 0).astype(float)
+    e = time.time()
+    # print("Making comp mats",e-s)
     # True Positives:
-    anc_comp = anc[1:,1:]
-    D_comp = (data == 1).astype(int)
+    s = time.time()
     n_TP = anc_comp.T @ D_comp
+    e = time.time()
+    # print("Calcing n_TP:",e-s)
     # False Negatives:
-    anc_comp = anc[1:,1:]
-    D_comp = (data == 0).astype(int)
-    n_FN = anc_comp.T @ D_comp
+    s = time.time()
+    n_FN = anc_comp.T @ not_D_comp
+    e = time.time()
+    # print("Calcing n_FN:",e-s)
     # True Negatives:
-    anc_comp = np.logical_not(anc[1:,1:]).astype(int)
-    D_comp = (data == 0).astype(int)
-    n_TN = anc_comp.T @ D_comp
+    s = time.time()
+    n_TN = not_anc_comp.T @ not_D_comp
+    e = time.time()
+    # print("Calcing n_TN:",e-s)
     # False Positives:
-    anc_comp = np.logical_not(anc[1:,1:]).astype(int)
-    D_comp = (data == 1).astype(int)
-    n_FP = anc_comp.T @ D_comp
+    s = time.time()
+    n_FP = not_anc_comp.T @ D_comp
+    e = time.time()
+    # print("Calcing n_FP:",e-s)
 
     #Second, I can pass that through my equation for tree LLH to get the final result.
+    s = time.time()
     cell_at_mut_contribution = n_FP*np.log(alpha) + n_FN*np.log(beta) + n_TN*np.log(1-alpha) + n_TP*np.log(1-beta)
     tree_llh = np.sum(logsumexp(cell_at_mut_contribution,axis=0))
+    e = time.time()
+    # print("The rest:",e-s)
     return tree_llh
 
 
@@ -132,6 +149,58 @@ def _sample_cat(W):
     choice = np.random.choice(len(W), p=W)
     assert W[choice] > 0
     return choice
+
+def _init_cluster_adj_mutrels(pairs_tensor):
+    K = pairs_tensor.shape[0] + 1
+    adj = np.eye(K, dtype=np.int)
+    in_tree = set((0,))
+    remaining = set(range(1, K))
+
+    W_nodes = np.zeros(K)
+
+    while len(remaining) > 0:
+        nodeidxs = np.array(sorted(remaining))
+        relidxs = nodeidxs - 1
+        assert np.all(relidxs >= 0)
+        anc_logprobs = pairs_tensor[np.ix_(relidxs, relidxs)][:,:,Models.A_B]
+        # These values are currently -inf, but we must replace these so that joint
+        # probabilities of being ancestral to remaining don't all become 0.
+        np.fill_diagonal(anc_logprobs, 0)
+
+        assert anc_logprobs.shape == (len(remaining), len(remaining))
+        log_W_nodes_remaining = np.sum(anc_logprobs, axis=1)
+        # Use really "soft" softmax.
+        W_nodes[nodeidxs] = _scaled_softmax(log_W_nodes_remaining)
+
+        # Root should never be selected.
+        assert W_nodes[0] == 0
+        assert np.isclose(1, np.sum(W_nodes))
+        assert np.all(W_nodes[list(in_tree)] == 0)
+        nidx = _sample_cat(W_nodes)
+
+        log_W_parents = np.full(K, -np.inf)
+        others = np.array(sorted(remaining - set((nidx,))))
+        truncated_pairs_tensor = util.remove_rowcol(pairs_tensor,others-1)
+    
+        for parent in in_tree:
+            new_adj = np.copy(adj)
+            new_adj[parent,nidx] = 1
+            truncated_adj = util.remove_rowcol(new_adj, others)
+            tree_logmutrel = _calc_tree_logmutrel(truncated_adj, truncated_pairs_tensor)
+            log_W_parents[parent] = np.sum(np.triu(tree_logmutrel))
+        W_parents = _scaled_softmax(log_W_parents)
+        assert np.all(W_parents[nodeidxs] == 0)
+        pidx = _sample_cat(W_parents)
+        adj[pidx,nidx] = 1
+
+        remaining.remove(nidx)
+        in_tree.add(nidx)
+        W_nodes[nidx] = 0
+
+    assert np.all(W_nodes == 0)
+    assert len(in_tree) == K
+    assert len(remaining) == 0
+    return adj
 
 def _init_cluster_adj_branching(K):
     #NOTE: This code was copied from Jeff's tree_sampler.py
@@ -315,27 +384,42 @@ def _generate_new_sample(old_samp, data, pairs_tensor, alpha, beta):
     mode_dest = _sample_cat(mode_dest_weights)
 
     #Calc the weights of choosing the node to move using the old tree.
+    s = time.time()
     W_nodes_old = _make_W_nodes_combined(old_samp.adj, old_samp.anc, pairs_tensor)
+    e = time.time()
+    # print("Getting node weights for one to move:", e-s)
     #Choose a node to move.
     B = _sample_cat(W_nodes_old[mode_node])
     #Calc the weights of choosing the destination for the node to move to.
+    s = time.time()
     W_dests_old = _make_W_dests_combined(
         B,
         old_samp.adj,
         old_samp.anc,
         pairs_tensor,
     )
+    e = time.time()
+    # print("Getting node weights for where to move:", e-s)
+
     #Choose a destination for the node to move to.
     A = _sample_cat(W_dests_old[mode_dest])
     #A = _find_parent(B, common._true_adjm)
     #Make the move and update the tree llh
+    s = time.time()
     new_adj = _modify_tree(old_samp.adj, old_samp.anc, A, B)
+    e = time.time()
+    # print("Modifying tree once:", e-s)
+
     new_anc = make_ancestral_from_adj(new_adj)
+    s = time.time()
     new_samp = TreeSample(
         adj = new_adj,
         anc = new_anc,
         llh = _calc_tree_llh(data, new_anc, alpha, beta)
     )
+    e = time.time()
+    # print("Calcing tree llh:", e-s)
+
 
     # `A_prime` and `B_prime` correspond to the node choices needed to reverse
     # the tree perturbation.
@@ -389,7 +473,7 @@ def _generate_new_sample(old_samp, data, pairs_tensor, alpha, beta):
     return (new_samp, log_p_new_given_old, log_p_old_given_new)
 
 
-def _init_chain(seed, data, alpha, beta):
+def _init_chain(seed, data, pairs_tensor, alpha, beta):
     #NOTE: This code was copied from Jeff's tree_sampler.py
 
     # Ensure each chain gets a new random state. I add chain index to initial
@@ -398,19 +482,17 @@ def _init_chain(seed, data, alpha, beta):
     np.random.seed(seed % 2**32)
 
     ##JB: Let's ignore this part for now and just choose the fully branched tree
-    # if np.random.uniform() < hparams.iota:
-    #     init_adj = _init_cluster_adj_mutrels(data_logmutrel)
-    # else:
-    #     # Particularly since clusters may not be ordered by mean VAF, a branching
-    #     # tree in which every node comes off the root is the least biased
-    #     # initialization, as it doesn't require any steps that "undo" bad choices, as
-    #     # in the linear or random (which is partly linear, given that later clusters
-    #     # aren't allowed to be parents of earlier ones) cases.
-    #     K = len(data_logmutrel.rels) + 1
-    #     init_adj = _init_cluster_adj_branching(K)
+    if np.random.uniform() < hparams.iota:
+        init_adj = _init_cluster_adj_mutrels(pairs_tensor)
+    else:
+        # Particularly since clusters may not be ordered by mean VAF, a branching
+        # tree in which every node comes off the root is the least biased
+        # initialization, as it doesn't require any steps that "undo" bad choices, as
+        # in the linear or random (which is partly linear, given that later clusters
+        # aren't allowed to be parents of earlier ones) cases.
+        K = pairs_tensor.shape[0] + 1
+        init_adj = _init_cluster_adj_branching(K)
     
-    K = data.shape[0] + 1
-    init_adj = _init_cluster_adj_branching(K)
     common.ensure_valid_tree(init_adj)
 
     init_anc = make_ancestral_from_adj(init_adj)
@@ -432,7 +514,7 @@ def _run_chain(data, pairs_tensor, alpha, beta, nsamples, thinned_frac, seed, pr
 
     assert nsamples > 0
 
-    samps = [_init_chain(seed, data, alpha, beta)]
+    samps = [_init_chain(seed, data, pairs_tensor, alpha, beta)]
     accepted = 0
     if progress_queue is not None:
         progress_queue.put(0)
