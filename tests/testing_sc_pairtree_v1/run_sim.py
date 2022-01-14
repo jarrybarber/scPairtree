@@ -4,6 +4,7 @@ import argparse
 import numpy as np
 import pickle
 import random
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'lib'))
 from error_rate_estimator import estimate_error_rates
@@ -67,7 +68,10 @@ def main():
     n_muts = args.n_clust*args.n_muts_p_c
     this_save_dir = os.path.join(save_dir,"clsts{}_muts{}_cells{}_FPR{}_ADO{}".format(str(args.n_clust),str(n_muts),str(n_cells),str(args.FPR).replace('.','p'),str(args.ADO).replace('.','p')))
     data, true_tree = generate_simulated_data(args.n_clust,n_cells,n_muts,args.FPR,args.ADO)
-    est_FPR, est_FNR = estimate_error_rates(data,subsample_cells=200,subsample_snvs=100)
+    s = time.time()
+    est_FPR, est_FNR = estimate_error_rates(data,subsample_cells=200,subsample_snvs=100,init_grid_search=False)
+    e = time.time()
+    print("Time to estimate error rates:", e-s)
     pairs_tensor = calc_ancestry_tensor(data, est_FPR, est_FNR, verbose=False, scale_integrand=True)
     pairs_tensor = complete_tensor(pairs_tensor)
     trees = sample_trees(data, pairs_tensor, FPR=est_FPR, FNR= est_FNR, 
