@@ -135,7 +135,7 @@ def main():
     print("Calculaing pairs tensor...")
     pairs_tensor = calc_ancestry_tensor(data.data, FPR, FNR, scale_integrand=True)
     pairs_tensor = complete_tensor(pairs_tensor)
-    ### IF I COME UP WITH CO-CLUSTERING METHOD, INSERT HERE PROBABLY ###
+    ### IF I COME UP WITH CO-CLUSTERING METHOD, INSERT HERE ###
 
 
     ### SAMPLE TREES ###

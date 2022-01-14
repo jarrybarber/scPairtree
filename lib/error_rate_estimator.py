@@ -24,7 +24,7 @@ def _to_min_multithreaded(data, x):
     return -(good_score_comp - bad_score_comp)
 
 
-def estimate_error_rates(data, n_iter=25, subsample_cells=None, subsample_snvs=None):
+def estimate_error_rates(data, n_iter=25, subsample_cells=None, subsample_snvs=None, init_grid_search=True):
     nSNVs, nCells = data.shape
     if np.isscalar(subsample_cells):
         if subsample_cells >= nCells:
@@ -65,8 +65,15 @@ def estimate_error_rates(data, n_iter=25, subsample_cells=None, subsample_snvs=N
 
     #Instead, let's use scipy's minimize function to estimate the errors.
     to_min = lambda x: _to_min_multithreaded(data,x)
+
+    if init_grid_search:
+        x0s = [[a,b] for a in np.linspace(0.0005,0.08,4) for b in np.linspace(0.005,0.3,4)]
+        x0 = x0s[np.argmin([to_min(x) for x in x0s])]
+    else:
+        x0 = [0.0050,0.25]
+
     res = minimize(to_min,
-                   x0=[0.0050,0.25],
+                   x0=x0,
                    method="Nelder-Mead",
                    bounds=[(0.0001,0.1),(0.0001,0.4)],
                    options={"maxiter": n_iter, 'xatol': 0.003, 'fatol': np.inf},

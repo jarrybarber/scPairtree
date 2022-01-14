@@ -40,7 +40,6 @@ def plot_tree(adj_mat, node_ids=None, title=""):
     root_node = np.where(np.sum(nt_adj_mat,axis=0) == 0)[0][0]
     fig = plt.figure(figsize=(20,10))
     ax = plt.subplot()
-    plt.title(title)
     def plot_children(node_ind, row, col):
         this_row = np.copy(row)
         ax.add_patch(mpatches.Circle([col,row],0.2))
@@ -55,8 +54,9 @@ def plot_tree(adj_mat, node_ids=None, title=""):
         return row
     max_rows = plot_children(root_node,0,0)
     ax.set_ylim([ax.get_ylim()[0]-0.5, ax.get_ylim()[1]+0.5])
-    fig.set_figwidth(np.diff(ax.get_xlim())[0])
-    fig.set_figheight(np.diff(ax.get_ylim())[0])
+    fig.set_figwidth(1.1*np.diff(ax.get_xlim())[0])
+    fig.set_figheight(1.1*np.diff(ax.get_ylim())[0])
+    plt.title(title)
     plt.xticks([])
     plt.yticks([])
     return fig
