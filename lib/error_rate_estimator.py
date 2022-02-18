@@ -1,84 +1,59 @@
+#Calculates the error rates for each mutation individually.
+# --> This version works with the score calculator that makes use of 3s (dropouts)
+# --> This version takes the false positive rate to be the same across mutations, and the false negative rate to be individualistic
+# --> 
+
 import numpy as np
-# from skopt import gp_minimize
 from scipy.optimize import minimize
 
-from score_calculator_quad_method import calc_ancestry_tensor, calc_score
+from score_calculator_util import log_model_posterior
+from util import  determine_all_pairwise_occurance_counts
 from common import Models
+from common import _EPSILON
 
 
-def _to_min_single_threaded(data,x):
-    #Does not use multithreading, which was causing issues with gp_minimize
-    good_scores = np.array([calc_score(data,model,data.shape[0]*[x[0]],data.shape[0]*[x[1]],quad_tol=1e-1,verbose=False) for model in [Models.A_B, Models.B_A, Models.diff_branches]])
-    good_score_comp = np.sum(np.max(good_scores,axis=0))
-    bad_score = calc_score(data,Models.garbage,data.shape[0]*[x[0]],data.shape[0]*[x[1]],quad_tol=1e-1,verbose=False)
-    bad_score_comp = np.sum(bad_score)
-    return -(good_score_comp - bad_score_comp)
-
-def _to_min_multithreaded(data, x):
-    print(x)
-    #Does use multithreading. Slightly faster but seems to break with gp_minimize.
-    scores = calc_ancestry_tensor(data,x[0],x[1],quad_tol=1e-1,verbose=False)
-    models_used_in_scoring = [Models.A_B, Models.B_A, Models.diff_branches]
-    good_score_comp = np.sum(np.max(scores[:,:,models_used_in_scoring],axis=2))
-    bad_score_comp = np.sum(scores[:,:,Models.garbage])
-    return -(good_score_comp - bad_score_comp)
-
-
-def estimate_error_rates(data, n_iter=25, subsample_cells=None, subsample_snvs=None, init_grid_search=True):
-    nSNVs, nCells = data.shape
-    if np.isscalar(subsample_cells):
-        if subsample_cells >= nCells:
-            print("nCells is less than subsample_cells... skipping subsample")
-        else:
-            print("Subsampling cells")
-            cells_to_sample = np.random.permutation(nCells)[0:subsample_cells]
-            data = data[:,cells_to_sample]
-            nCells = subsample_cells
-    if np.isscalar(subsample_snvs):
-        if subsample_snvs >= nSNVs:
-            print("nSNVs is less than subsample_snvs... skipping subsample")
-        else:
-            print("Subsampling mutations")
-            muts_to_sample = np.random.permutation(nSNVs)[0:subsample_snvs]
-            data = data[muts_to_sample,:]
-            nSNVs = subsample_snvs
+def _calc_to_min_val(alphas,betas,phis,pairwise_occurances):
+    n_mut = len(alphas)
+    assert n_mut==len(betas)
+    assert n_mut==len(phis)
+    AB_scores     = np.array([[log_model_posterior(Models.A_B,pairwise_occurances[:,:,i,j],alphas[i],alphas[j],betas[i],betas[j],phis[i],phis[j]) for j in range(n_mut)] for i in range(n_mut)])
+    BA_scores     = np.transpose(AB_scores)
+    branch_scores = np.array([[log_model_posterior(Models.diff_branches,pairwise_occurances[:,:,i,j],alphas[i],alphas[j],betas[i],betas[j],phis[i],phis[j]) if i>=j else 0 for j in range(n_mut)] for i in range(n_mut)])
+    branch_scores = branch_scores + np.transpose(branch_scores)
     
-    print(data.shape)
+    #incorporate phi constraints
+    phi_mat = np.vstack([phis]*n_mut)
+    AB_scores[phi_mat>phi_mat.T] = -np.inf
+    BA_scores[phi_mat<phi_mat.T] = -np.inf
+    branch_scores[(phi_mat+phi_mat.T)>1] = -np.inf
+    
+    #Calc the score
+    non_garb_scores= np.max(np.stack([AB_scores,BA_scores,branch_scores]),axis=0)
+    non_garb_scores[range(n_mut),range(n_mut)] = 0 #Set diagonal values to 0 as those are uninformative
+    non_garb_score = np.sum(non_garb_scores)
+    return -(non_garb_score)
 
-    print("Estimating the error rates...")
 
-    #NOTE: Remnants from when I was using gp_minimize to estimate the errors.
-    # For some reason this is breaking when I use the multithreaded version of
-    # calc_ancestry_tensor. Also, it's not very accurate... scipy's minimize
-    # seems to be just as fast and is more accurate and can use the multithreading
-    # aspect.
-    # to_min = lambda x: _to_min_single_threaded(data,x)
-    # res = gp_minimize(to_min,
-    #                 dimensions=[(0.0001, 0.1),(0.0001, 0.4)],
-    #                 n_calls=n_iter,
-    #                 n_initial_points=n_init,
-    #                 initial_point_generator="sobol",
-    #                 # acq_func = "PI",
-    #                 # acq_optimizer = "sampling",
-    #                 verbose=True)
-    # ans = res['x']
+def estimate_error_rates(data):
 
-    #Instead, let's use scipy's minimize function to estimate the errors.
-    to_min = lambda x: _to_min_multithreaded(data,x)
+    pairwise_occurances, _ = determine_all_pairwise_occurance_counts(data)
+    n_mut = data.shape[0]
 
-    if init_grid_search:
-        x0s = [[a,b] for a in np.linspace(0.0005,0.08,4) for b in np.linspace(0.005,0.3,4)]
-        x0 = x0s[np.argmin([to_min(x) for x in x0s])]
-    else:
-        x0 = [0.0050,0.25]
+    to_min = lambda x: _calc_to_min_val([x[0]]*n_mut,x[1:n_mut+1],x[n_mut+1:],pairwise_occurances)
+
+    alpha0s = np.random.beta(11,1000,1)
+    beta0s  = np.random.beta(30,200,n_mut)
+    phi0s   = np.random.beta(np.sum(data==1,axis=1)+_EPSILON,np.sum(data==0,axis=1)+_EPSILON)
+    x0 = np.hstack([alpha0s,beta0s,phi0s])
 
     res = minimize(to_min,
-                   x0=x0,
-                   method="Nelder-Mead",
-                   bounds=[(0.0001,0.1),(0.0001,0.4)],
-                   options={"maxiter": n_iter, 'xatol': 0.003, 'fatol': np.inf},
-                   )
-    
-    ans = res.x
-
-    return ans
+                x0=x0,
+                method="Powell",
+                bounds=[(0.000001,0.1)] + [(0.001,0.5)]*n_mut + [(0.0,1.0)]*n_mut,
+                options={"disp":True, "maxiter": 1000*len(x0), 'xtol': 1e-6, 'ftol':1e-6},
+                )
+    est_errs = res.x
+    est_FPRs = est_errs[0]
+    est_FNRs = est_errs[1:n_mut+1]
+    est_phis = est_errs[n_mut+1:]
+    return (np.array([est_FPRs]*n_mut),est_FNRs,est_phis), x0

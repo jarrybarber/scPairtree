@@ -31,7 +31,7 @@ def plot_tree(adj_mat, node_ids=None, title=""):
     # tree_mat = tree_mat[:,nonempty_layers]
 
     #Let's actually plot.
-    # This is a recursive function. 
+    # This is a recursive function
     # Will plot a line until get to the end of the first leaf.
     # Then, will go to branch closest to that leaf, add a row, plot that branch.
     # Rinse and repeat until whole thing is plot

@@ -1,169 +1,127 @@
 import numpy as np
-from numba import njit
+from numba import njit, int8, float32, float64
+from common import Models
+
+
+ISCLOSE_TOLERANCE = 1e-8
+
+@njit(float32(int8, float64, float64))
+def model_prior(model,phi_a,phi_b):
+    
+    if (phi_a<0) or (phi_b<0) or (phi_b>1) or (phi_b>1):
+        return 0
+    
+    if model == Models.A_B:
+        if phi_a >= phi_b:
+            return 2.0
+        else:
+            return 0.0
+    elif model == Models.B_A:
+        if phi_a <= phi_b:
+            return 2.0
+        else:
+            return 0.0
+    elif model == Models.diff_branches:
+        if phi_a + phi_b <= 1:
+            return 2.0
+        else:
+            return 0.0
+    elif model == Models.cocluster:
+        if np.abs(phi_a-phi_b) < ISCLOSE_TOLERANCE:
+            return 1.0
+        else:
+            return 0.0
+    elif model == Models.garbage:
+        return 1.0
+    
+    return 0.0 #necessary for numba to not get confused
+
+@njit(float64(int8, int8, float64, float64))
+def p_data_given_truth_and_errors(d,t,fpr,ado): #p(D_ii|t,fpr,ado)
+    #d=data,t=true,fpr=single-allele false positive rate,ado=allelic dropout rate
+    assert d in (0,1,3)
+    assert t in (0,1)
+    if d==3:
+        return ado**2 #Note: can consider incorportating copy numbers here
+    if (d==1) and (t==1): #TP
+        return (1-ado)**2*(1-fpr+fpr**2) + ado*(1-ado)#(1-ado**2)*(1-ado)
+    if (d==1) and (t==0): #FP
+        return (1-ado)*fpr*(2-fpr+ado)
+    if (d==0) and (t==1): #FN
+        return (1-ado)**2*fpr*(1-fpr) + ado*(1-ado)
+    if (d==0) and (t==0): #TN
+        return (1-ado)**2*(1-fpr)**2 + 2*(1-ado)*ado*(1-fpr)
+    return 0.0 #necessary for numba to not get confused
+
+@njit(float32(int8,int8,int8,float64,float64))
+def p_trueDat_given_model_and_phis(t1,t2,model,phi1,phi2):
+    if model==Models.cocluster:
+        if (phi1 != phi2) | (t1 != t2):
+            to_ret = 0
+        elif t1==0:
+            to_ret = 1-phi1
+        else:
+            to_ret = phi1
+    elif model==Models.A_B:
+        if t1==0 and t2==0:
+            to_ret = 1-phi1
+        elif t1==1 and t2==0:
+            to_ret = phi1-phi2
+        elif t1==0 and t2==1:
+            to_ret = 0
+        elif t1==1 and t2==1:
+            to_ret = phi2
+    elif model==Models.B_A:
+        if t1==0 and t2==0:
+            to_ret = 1-phi2
+        elif t1==1 and t2==0:
+            to_ret = 0
+        elif t1==0 and t2==1:
+            to_ret = phi2-phi1
+        elif t1==1 and t2==1:
+            to_ret = phi1
+    elif model==Models.diff_branches:
+        if t1==0 and t2==0:
+            to_ret = 1-phi1-phi2
+        elif t1==1 and t2==0:
+            to_ret = phi1
+        elif t1==0 and t2==1:
+            to_ret = phi2
+        elif t1==1 and t2==1:
+            to_ret = 0
+    elif model==Models.garbage:
+        #Not checked
+        if t1==0 and t2==0:
+            to_ret = (1-phi1)*(1-phi2)
+        elif t1==1 and t2==0:
+            to_ret = phi1*(1-phi2)
+        elif t1==0 and t2==1:
+            to_ret = (1-phi1)*phi2
+        elif t1==1 and t2==1:
+            to_ret = phi1*phi2
+    if to_ret<0: #Hacky way of implementing phi constraints...
+        to_ret = 0        
+    return to_ret 
+
+def model_posterior(model,pairwise_occurances,fpr_a,fpr_b,ado_a,ado_b,phi_a,phi_b,scale=0):
+    post = np.exp(log_model_posterior(model,pairwise_occurances,fpr_a,fpr_b,ado_a,ado_b,phi_a,phi_b) - scale)
+    return post
 
 
 @njit
-def _A_B_integrand(phi_i, phi_j, alpha_i, alpha_j, beta_i, beta_j, n11, n10, n01, n00, scaling_factor=0):
-    return np.exp(  \
-                np.log(2) + \
-                n11*np.log( (1-beta_i)*(1-beta_j)*phi_j +     (1-beta_i)*alpha_j*(phi_i - phi_j) +         alpha_i*alpha_j*(1-phi_i) ) + \
-                n10*np.log(     (1-beta_i)*beta_j*phi_j + (1-beta_i)*(1-alpha_j)*(phi_i - phi_j) +     alpha_i*(1-alpha_j)*(1-phi_i) ) + \
-                n01*np.log(     beta_i*(1-beta_j)*phi_j +         beta_i*alpha_j*(phi_i - phi_j) +     (1-alpha_i)*alpha_j*(1-phi_i) ) + \
-                n00*np.log(         beta_i*beta_j*phi_j +     beta_i*(1-alpha_j)*(phi_i - phi_j) + (1-alpha_i)*(1-alpha_j)*(1-phi_i) ) - \
-                scaling_factor
-    )
+def log_model_posterior(model,pairwise_occurances,fpr_a,fpr_b,ado_a,ado_b,phi_a,phi_b):
+    mod_pri = model_prior(model, phi_a, phi_b)
+    if mod_pri==0:
+        return -np.inf
 
-@njit
-def _B_A_integrand(phi_i, phi_j, alpha_i, alpha_j, beta_i, beta_j, n11, n10, n01, n00, scaling_factor=0):
-    return np.exp(   \
-                np.log(2) + \
-                n11*np.log( (1-beta_i)*(1-beta_j)*phi_i +     (1-beta_j)*alpha_i*(phi_j - phi_i) +         alpha_i*alpha_j*(1-phi_j) ) + \
-                n10*np.log(     (1-beta_i)*beta_j*phi_i +         beta_j*alpha_i*(phi_j - phi_i) +     alpha_i*(1-alpha_j)*(1-phi_j) ) + \
-                n01*np.log(     beta_i*(1-beta_j)*phi_i + (1-beta_j)*(1-alpha_i)*(phi_j - phi_i) +     (1-alpha_i)*alpha_j*(1-phi_j) ) + \
-                n00*np.log(         beta_i*beta_j*phi_i +     beta_j*(1-alpha_i)*(phi_j - phi_i) + (1-alpha_i)*(1-alpha_j)*(1-phi_j) ) - \
-                scaling_factor
-    )
+    log_post = np.log(mod_pri) + \
+            np.sum(
+                np.array([np.log(np.sum(np.array([np.exp(
+                    np.log(p_data_given_truth_and_errors(d_i,t_n,fpr_a,ado_a))+
+                    np.log(p_data_given_truth_and_errors(d_j,t_m,fpr_b,ado_b))+
+                    np.log(p_trueDat_given_model_and_phis(t_n,t_m,model,phi_a,phi_b))
+                    )for t_n in (0,1) for t_m in (0,1)])))*pairwise_occurances[i][j] 
+                for i,d_i in enumerate((0,1,3)) for j,d_j in enumerate((0,1,3))]))
+    
+    return log_post
 
-@njit
-def _cocluster_integrand(phi, alpha_i, alpha_j, beta_i, beta_j, n11, n10, n01, n00, scaling_factor=0):
-    return np.exp(   \
-                n11*np.log( (1-beta_i)*(1-beta_j)*phi +         alpha_i*alpha_j*(1-phi) ) + \
-                n10*np.log(     (1-beta_i)*beta_j*phi +     alpha_i*(1-alpha_j)*(1-phi) ) + \
-                n01*np.log(     beta_i*(1-beta_j)*phi +     (1-alpha_i)*alpha_j*(1-phi) ) + \
-                n00*np.log(         beta_i*beta_j*phi + (1-alpha_i)*(1-alpha_j)*(1-phi) ) - \
-                scaling_factor
-    )
-
-@njit
-def _diff_branches_integrand(phi_i, phi_j, alpha_i, alpha_j, beta_i, beta_j, n11, n10, n01, n00, scaling_factor=0):
-    return np.exp(   \
-                np.log(2) + \
-                n11*np.log(     (1-beta_i)*alpha_j*phi_i +        alpha_i*(1-beta_j)*phi_j +         alpha_i*alpha_j*(1-phi_i-phi_j) ) + \
-                n10*np.log( (1-beta_i)*(1-alpha_j)*phi_i +            alpha_i*beta_j*phi_j +     alpha_i*(1-alpha_j)*(1-phi_i-phi_j) ) + \
-                n01*np.log(         beta_i*alpha_j*phi_i +    (1-alpha_i)*(1-beta_j)*phi_j +     (1-alpha_i)*alpha_j*(1-phi_i-phi_j) ) + \
-                n00*np.log(     beta_i*(1-alpha_j)*phi_i +        (1-alpha_i)*beta_j*phi_j + (1-alpha_i)*(1-alpha_j)*(1-phi_i-phi_j) ) - \
-                scaling_factor
-    )
-
-@njit
-def _garbage_integrand(phi_i, phi_j, alpha_i, alpha_j, beta_i, beta_j, n11, n10, n01, n00, scaling_factor=0):
-    return np.exp(   \
-                (n11 + n10)*np.log( (1-beta_i)*phi_i +     alpha_i*(1-phi_i) ) + \
-                (n01 + n00)*np.log(     beta_i*phi_i + (1-alpha_i)*(1-phi_i) ) + \
-                (n11 + n01)*np.log( (1-beta_j)*phi_j +     alpha_j*(1-phi_j) ) + \
-                (n10 + n00)*np.log(     beta_j*phi_j + (1-alpha_j)*(1-phi_j) ) - \
-                scaling_factor
-    )
-
-
-
-@njit
-def _A_B_logged_integrand(phi_i, phi_j, alpha_i, alpha_j, beta_i, beta_j, n11, n10, n01, n00):
-    return \
-        np.log(2) + \
-        n11*np.log( (1-beta_i)*(1-beta_j)*phi_j +     (1-beta_i)*alpha_j*(phi_i - phi_j) +         alpha_i*alpha_j*(1-phi_i) ) + \
-        n10*np.log( (1-beta_i)*beta_j*phi_j     + (1-beta_i)*(1-alpha_j)*(phi_i - phi_j) +     alpha_i*(1-alpha_j)*(1-phi_i) ) + \
-        n01*np.log( beta_i*(1-beta_j)*phi_j     +         beta_i*alpha_j*(phi_i - phi_j) +     (1-alpha_i)*alpha_j*(1-phi_i) ) + \
-        n00*np.log( beta_i*beta_j*phi_j         +     beta_i*(1-alpha_j)*(phi_i - phi_j) + (1-alpha_i)*(1-alpha_j)*(1-phi_i) ) 
-
-@njit
-def _B_A_logged_integrand(phi_i, phi_j, alpha_i, alpha_j, beta_i, beta_j, n11, n10, n01, n00):
-    return \
-        np.log(2) + \
-        n11*np.log( (1-beta_i)*(1-beta_j)*phi_i +     (1-beta_j)*alpha_i*(phi_j - phi_i) +         alpha_i*alpha_j*(1-phi_j) ) + \
-        n10*np.log( (1-beta_i)*beta_j*phi_i     +         beta_j*alpha_i*(phi_j - phi_i) +     alpha_i*(1-alpha_j)*(1-phi_j) ) + \
-        n01*np.log( beta_i*(1-beta_j)*phi_i     + (1-beta_j)*(1-alpha_i)*(phi_j - phi_i) +     (1-alpha_i)*alpha_j*(1-phi_j) ) + \
-        n00*np.log( beta_i*beta_j*phi_i         +     beta_j*(1-alpha_i)*(phi_j - phi_i) + (1-alpha_i)*(1-alpha_j)*(1-phi_j) )  
-
-@njit
-def _cocluster_logged_integrand(phi, alpha_i, alpha_j, beta_i, beta_j, n11, n10, n01, n00):
-    return \
-        n11*np.log( (1-beta_i)*(1-beta_j)*phi +         alpha_i*alpha_j*(1-phi) ) + \
-        n10*np.log( (1-beta_i)*beta_j*phi     +     alpha_i*(1-alpha_j)*(1-phi) ) + \
-        n01*np.log( beta_i*(1-beta_j)*phi     +     (1-alpha_i)*alpha_j*(1-phi) ) + \
-        n00*np.log( beta_i*beta_j*phi         + (1-alpha_i)*(1-alpha_j)*(1-phi) )
-
-@njit
-def _diff_branches_logged_integrand(phi_i, phi_j, alpha_i, alpha_j, beta_i, beta_j, n11, n10, n01, n00):
-    return \
-        np.log(2) + \
-        n11*np.log( (1-beta_i)*alpha_j*phi_i     +        alpha_i*(1-beta_j)*phi_j +         alpha_i*alpha_j*(1-phi_i-phi_j) ) + \
-        n10*np.log( (1-beta_i)*(1-alpha_j)*phi_i +            alpha_i*beta_j*phi_j +     alpha_i*(1-alpha_j)*(1-phi_i-phi_j) ) + \
-        n01*np.log( beta_i*alpha_j*phi_i         +    (1-alpha_i)*(1-beta_j)*phi_j +     (1-alpha_i)*alpha_j*(1-phi_i-phi_j) ) + \
-        n00*np.log( beta_i*(1-alpha_j)*phi_i     +        (1-alpha_i)*beta_j*phi_j + (1-alpha_i)*(1-alpha_j)*(1-phi_i-phi_j) )
-
-@njit
-def _garbage_logged_integrand(phi_i, phi_j, alpha_i, alpha_j, beta_i, beta_j, n11, n10, n01, n00):
-    return \
-        (n11 + n10)*np.log( (1-beta_i)*phi_i + alpha_i*(1-phi_i) ) + \
-        (n01 + n00)*np.log( beta_i*phi_i + (1-alpha_i)*(1-phi_i) ) + \
-        (n11 + n01)*np.log( (1-beta_j)*phi_j + alpha_j*(1-phi_j) ) + \
-        (n10 + n00)*np.log( beta_j*phi_j + (1-alpha_j)*(1-phi_j) )
-
-
-
-
-
-@njit
-def _A_B_logged_integrand_jacobian(phi_i, phi_j, alpha_i, alpha_j, beta_i, beta_j, n11, n10, n01, n00):
-    return \
-        np.array([
-        n11*    (1-beta_i-alpha_i)*alpha_j/( (1-beta_i)*(1-beta_j)*phi_j +     (1-beta_i)*alpha_j*(phi_i - phi_j) +         alpha_i*alpha_j*(1-phi_i) ) + \
-        n10*(1-beta_i-alpha_i)*(1-alpha_j)/(     (1-beta_i)*beta_j*phi_j + (1-beta_i)*(1-alpha_j)*(phi_i - phi_j) +     alpha_i*(1-alpha_j)*(1-phi_i) ) + \
-        n01*    (beta_i+alpha_i-1)*alpha_j/(     beta_i*(1-beta_j)*phi_j +         beta_i*alpha_j*(phi_i - phi_j) +     (1-alpha_i)*alpha_j*(1-phi_i) ) + \
-        n00*(beta_i+alpha_i-1)*(1-alpha_j)/(         beta_i*beta_j*phi_j +     beta_i*(1-alpha_j)*(phi_i - phi_j) + (1-alpha_i)*(1-alpha_j)*(1-phi_i) )
-        ,
-        n11*(1-beta_i)*(1-alpha_j-beta_j)/( (1-beta_i)*(1-beta_j)*phi_j +     (1-beta_i)*alpha_j*(phi_i - phi_j) +         alpha_i*alpha_j*(1-phi_i) ) + \
-        n10*(1-beta_i)*(alpha_j+beta_j-1)/(     (1-beta_i)*beta_j*phi_j + (1-beta_i)*(1-alpha_j)*(phi_i - phi_j) +     alpha_i*(1-alpha_j)*(1-phi_i) ) + \
-        n01*    beta_i*(1-alpha_j-beta_j)/(     beta_i*(1-beta_j)*phi_j +         beta_i*alpha_j*(phi_i - phi_j) +     (1-alpha_i)*alpha_j*(1-phi_i) ) + \
-        n00*    beta_i*(alpha_j+beta_j-1)/(         beta_i*beta_j*phi_j +     beta_i*(1-alpha_j)*(phi_i - phi_j) + (1-alpha_i)*(1-alpha_j)*(1-phi_i) )
-        ])
-
-@njit
-def _B_A_logged_integrand_jacobian(phi_i, phi_j, alpha_i, alpha_j, beta_i, beta_j, n11, n10, n01, n00):
-    return \
-        np.array([
-        n11*(1-beta_j)*(1-alpha_i-beta_i)/( (1-beta_i)*(1-beta_j)*phi_i +     (1-beta_j)*alpha_i*(phi_j - phi_i) +         alpha_i*alpha_j*(1-phi_j) ) + \
-        n10*    beta_j*(1-alpha_i-beta_i)/( (1-beta_i)*beta_j*phi_i     +         beta_j*alpha_i*(phi_j - phi_i) +     alpha_i*(1-alpha_j)*(1-phi_j) ) + \
-        n01*(1-beta_j)*(alpha_i+beta_i-1)/( beta_i*(1-beta_j)*phi_i     + (1-beta_j)*(1-alpha_i)*(phi_j - phi_i) +     (1-alpha_i)*alpha_j*(1-phi_j) ) + \
-        n00*    beta_j*(alpha_i+beta_i-1)/( beta_i*beta_j*phi_i         +     beta_j*(1-alpha_i)*(phi_j - phi_i) + (1-alpha_i)*(1-alpha_j)*(1-phi_j) )
-        ,
-        n11*   (1-alpha_j-beta_j)*alpha_i /( (1-beta_i)*(1-beta_j)*phi_i +     (1-beta_j)*alpha_i*(phi_j - phi_i) +         alpha_i*alpha_j*(1-phi_j) ) + \
-        n10*   (alpha_j+beta_j-1)*alpha_i /( (1-beta_i)*beta_j*phi_i     +         beta_j*alpha_i*(phi_j - phi_i) +     alpha_i*(1-alpha_j)*(1-phi_j) ) + \
-        n01*(1-alpha_j-beta_j)*(1-alpha_i)/( beta_i*(1-beta_j)*phi_i     + (1-beta_j)*(1-alpha_i)*(phi_j - phi_i) +     (1-alpha_i)*alpha_j*(1-phi_j) ) + \
-        n00*(alpha_j+beta_j-1)*(1-alpha_i)/( beta_i*beta_j*phi_i         +     beta_j*(1-alpha_i)*(phi_j - phi_i) + (1-alpha_i)*(1-alpha_j)*(1-phi_j) )
-        ])
-
-@njit
-def _cocluster_logged_integrand_jacobian(phi, alpha_i, alpha_j, beta_i, beta_j, n11, n10, n01, n00):
-    return \
-        n11*((1-beta_i)*(1-beta_j) -    alpha_i *   alpha_j ) / ((1-beta_i)*(1-beta_j)*phi +         alpha_i*alpha_j*(1-phi)) + \
-        n10*((1-beta_i)*   beta_j  -    alpha_i *(1-alpha_j)) / ((1-beta_i)*beta_j*phi     +     alpha_i*(1-alpha_j)*(1-phi)) + \
-        n01*(   beta_i *(1-beta_j) - (1-alpha_i)*   alpha_j ) / (beta_i*(1-beta_j)*phi     +     (1-alpha_i)*alpha_j*(1-phi)) + \
-        n00*(   beta_i *   beta_j  - (1-alpha_i)*(1-alpha_j)) / (beta_i*beta_j*phi         + (1-alpha_i)*(1-alpha_j)*(1-phi))
-
-@njit
-def _diff_branches_logged_integrand_jacobian(phi_i, phi_j, alpha_i, alpha_j, beta_i, beta_j, n11, n10, n01, n00):
-    return \
-        np.array([
-        n11*(1-alpha_i-beta_i)*   alpha_j /( (1-beta_i)*alpha_j*phi_i     +        alpha_i*(1-beta_j)*phi_j +         alpha_i*alpha_j*(1-phi_i-phi_j) ) + \
-        n10*(1-alpha_i-beta_i)*(1-alpha_j)/( (1-beta_i)*(1-alpha_j)*phi_i +            alpha_i*beta_j*phi_j +     alpha_i*(1-alpha_j)*(1-phi_i-phi_j) ) + \
-        n01*(alpha_i+beta_i-1)*   alpha_j /( beta_i*alpha_j*phi_i         +    (1-alpha_i)*(1-beta_j)*phi_j +     (1-alpha_i)*alpha_j*(1-phi_i-phi_j) ) + \
-        n00*(alpha_i+beta_i-1)*(1-alpha_j)/( beta_i*(1-alpha_j)*phi_i     +        (1-alpha_i)*beta_j*phi_j + (1-alpha_i)*(1-alpha_j)*(1-phi_i-phi_j) )
-        ,
-        n11*(1-alpha_j-beta_j)*   alpha_i /( (1-beta_i)*alpha_j*phi_i     +        alpha_i*(1-beta_j)*phi_j +         alpha_i*alpha_j*(1-phi_i-phi_j) ) + \
-        n10*(alpha_j+beta_j-1)*   alpha_i /( (1-beta_i)*(1-alpha_j)*phi_i +            alpha_i*beta_j*phi_j +     alpha_i*(1-alpha_j)*(1-phi_i-phi_j) ) + \
-        n01*(1-alpha_j-beta_j)*(1-alpha_i)/( beta_i*alpha_j*phi_i         +    (1-alpha_i)*(1-beta_j)*phi_j +     (1-alpha_i)*alpha_j*(1-phi_i-phi_j) ) + \
-        n00*(alpha_j+beta_j-1)*(1-alpha_i)/( beta_i*(1-alpha_j)*phi_i     +        (1-alpha_i)*beta_j*phi_j + (1-alpha_i)*(1-alpha_j)*(1-phi_i-phi_j) )
-        ])
-
-@njit
-def _garbage_logged_integrand_jacobian(phi_i, phi_j, alpha_i, alpha_j, beta_i, beta_j, n11, n10, n01, n00):
-    return \
-        np.array([
-        (n11 + n10)*(1-alpha_i-beta_i) / ((1-beta_i)*phi_i +     alpha_i*(1-phi_i)) + \
-        (n01 + n00)*(alpha_i+beta_i-1) / (    beta_i*phi_i + (1-alpha_i)*(1-phi_i)) 
-        ,
-        (n11 + n01)*(1-alpha_j-beta_j) / ((1-beta_j)*phi_j +     alpha_j*(1-phi_j)) + \
-        (n10 + n00)*(alpha_j+beta_j-1) / (    beta_j*phi_j + (1-alpha_j)*(1-phi_j)) 
-        ])

@@ -13,7 +13,7 @@ _Data = namedtuple('_Data', (
   'n_snvs',
   'n_cells',
   'snv_ids',
-  #'cell_ids' #Note implemented yet
+  #'cell_ids' #Not implemented yet
 ))
 
 #Should work as long as util.py is in the bin folder
@@ -37,26 +37,27 @@ def load_sim_data(fn):
             count += 1
     return _Data(data=np.array(data),n_snvs=len(data),n_cells=len(data[0]),snv_ids=snv_ids)
 
+def determine_all_pairwise_occurance_counts(data):
+    dat_vals = (0,1,3)
+    pairwise_occurances = np.swapaxes(np.array([[determine_pairwise_occurance_counts(data, [i,j]) for i in (0,1,3)] for j in (0,1,3)]),0,1)
 
-def determine_pairwise_occurance_counts(data):
-    # This will take data of the form nSSMs x nCells and determine the counts of
-    # each pairwise occurance. I.e., how many times a [1 1], [1 0], [0 1], [0 0]
-    # occurs in the data for each SSM pair. Values other than 0 or 1 (eg, 3= no 
-    # call) will be omitted.
+    return pairwise_occurances, dat_vals
 
-    #First, need separate boolean matricies for each condition
-    has_ref = (data==0).astype(int) + 0.0 #Strange issue when matricies get large... takes forever when integers as well... switch to float for mat mult, then switch back
-    has_alt = (data==1).astype(int) + 0.0
+def determine_pairwise_occurance_counts(data,pair_val):
+    # This will take data of the form nMuts x nCells and a pair value and determine 
+    # the counts of the pair value across every possible pair. E.g., how many times 
+    # a [1 0] or a [0,3] occurs in the data for a mutation pair
+    assert len(pair_val)==2
+    assert pair_val[0] in (0,1,3)
+    assert pair_val[1] in (0,1,3)
+
+    #First, we need separate boolean matricies for each condition
+    has_1st = (data==pair_val[0]).astype(float) #Strange issue with int matricies where it takes forever to calculate. switch to float for mat mult, then switch back
+    has_2nd = (data==pair_val[1]).astype(float)
     #For every mutation pair, count the number of times both occur across all cells
-    n11 = has_alt @ np.transpose(has_alt)
-    #For every mutation pair, count the number of times neither occur across all cells
-    n00 = has_ref @ np.transpose(has_ref)
-    #For every mutation pair, count the number of times only first occurs across all cells
-    n10 = has_alt @ np.transpose(has_ref)
-    #For every mutation pair, count the number of times only second occurs across all cells
-    n01 = has_ref @ np.transpose(has_alt)
+    count_mat = has_1st @ np.transpose(has_2nd)
 
-    return n11.astype(int),n10.astype(int),n01.astype(int),n00.astype(int)
+    return count_mat.astype(int)
 
 
 def calc_tensor_prob(tensor):
