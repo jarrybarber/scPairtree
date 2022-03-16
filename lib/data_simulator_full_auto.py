@@ -6,6 +6,8 @@ import sys
 import argparse
 from util import DATA_DIR
 from tree_util import make_ancestral_from_adj
+from score_calculator_util import p_data_given_truth_and_errors
+from common import DataRange, DataRangeIdx
 
 
 def _save_data(data):
@@ -19,21 +21,18 @@ def _apply_errors(real_data,FPR,ADO):
     # Additionally, ADO correspongs to just one allele dropping out. Doesn't necessarily mean
     # a false negative will occure. Also, assuming a diploid cell, the full locus dropout 
     # will be ADO^2
-    n_snvs, n_cells = real_data.shape
 
-    locus_DOR = ADO**2
-    actual_FPR = FPR**2*(1-ADO)**2 + 2*FPR*(1-FPR)*(1-ADO)**2 + 2*FPR*ADO*(1-ADO)
-    actual_FNR = 2*FPR*(1-FPR)*(1-ADO)**2 + ADO*(1-ADO)
+    #Set what the data points can be
+    d_rng_i = DataRangeIdx.ref_hetvar_homvar_nodata #Just leave as this? Later on can just merge 3s into 0s and 2s into 1s if really want to use the other types, and then just have to make the data once.
+    r_rng = DataRange[d_rng_i] #[0,1,2,3]
 
-    data = np.copy(real_data)
-    data[np.random.rand(n_snvs,n_cells)<=locus_DOR] = 3
+    data = np.zeros(real_data.shape)
+    ps_gt0 = [p_data_given_truth_and_errors(d,0,FPR,ADO,d_rng_i) for d in r_rng]
+    ps_gt1 = [p_data_given_truth_and_errors(d,1,FPR,ADO,d_rng_i) for d in r_rng]
+    data = data + (real_data==0).astype(int) * np.random.choice(r_rng, data.shape, p=ps_gt0)
+    data = data + (real_data==1).astype(int) * np.random.choice(r_rng, data.shape, p=ps_gt1)
 
-    FN_inds = (data==1) & (np.random.rand(n_snvs,n_cells)<=actual_FNR)
-    FP_inds = (data==0) & (np.random.rand(n_snvs,n_cells)<=actual_FPR)
-    data[FN_inds] = 0
-    data[FP_inds] = 1
-
-    return data, (actual_FPR*(1-locus_DOR), actual_FNR*(1-locus_DOR), locus_DOR)
+    return data
 
 def _generate_error_free_data(anc_mat, cell_assignments, mut_assignments):
     #Switch to one-hot encoding
@@ -76,7 +75,7 @@ def generate_simulated_data(n_clust,n_cells,n_muts,FPR,ADO,cell_alpha,mut_alpha)
     mut_assignments  = _assign_to_subclones(n_muts,  n_clust, a=mut_alpha)
 
     real_data = _generate_error_free_data(anc_mat,cell_assignments,mut_assignments)
-    data, _ = _apply_errors(real_data,FPR,ADO)
+    data = _apply_errors(real_data,FPR,ADO)
     return data, (real_data, adj_mat, cell_assignments, mut_assignments)
 
 def get_args():
@@ -105,7 +104,7 @@ def get_args():
     parser.add_argument('--sim-isav', dest='ISAs', action='store_true',
         help='Whether or not to simualate ISA violations.')
     parser.add_argument('--save-data', dest='save_data', action='store_true',
-        help='Whether or not to simualate save the data. If true nothing will be returned.')
+        help='Whether or not to save the data. If true nothing will be returned.')
 
     args = parser.parse_args()
     return args
