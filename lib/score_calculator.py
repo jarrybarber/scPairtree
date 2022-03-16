@@ -113,8 +113,6 @@ def calc_ancestry_tensor(data, alpha, beta, quad_tol=1e0, verbose=True, scale_in
     
     pool = Pool(NUM_MODELS)
     results = {}
-    # for model in models:
-    #     results[model] = pool.apply_async(calc_score, args=(data, model, alpha, beta, min_tol, quad_tol, verbose, scale_integrand))
     
     results[Models.A_B] = pool.apply_async(calc_score, args=(np.copy(data), Models.A_B, alpha, beta, quad_tol, verbose, scale_integrand))
     results[Models.B_A] = pool.apply_async(calc_score, args=(np.copy(data), Models.B_A, alpha, beta, quad_tol, verbose, scale_integrand))
@@ -123,11 +121,9 @@ def calc_ancestry_tensor(data, alpha, beta, quad_tol=1e0, verbose=True, scale_in
     results[Models.garbage] = pool.apply_async(calc_score, args=(np.copy(data), Models.garbage, alpha, beta, quad_tol, verbose, scale_integrand))
     pool.close()
     pool.join()
-    #TODO: 
-    # - do I want models run to be selectable? OR just run all and return all?
-    # - When it comes to completing the tensor, I will need all of the models, so may just want them all to be run.
+
     scores = np.zeros((nSNVs,nSNVs,NUM_MODELS))
-    for k in results.keys():
+    for k in results:
         scores[:,:,k] = results[k].get()
     return scores
 

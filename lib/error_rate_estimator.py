@@ -6,7 +6,7 @@
 import numpy as np
 from scipy.optimize import minimize
 
-from score_calculator_util import log_model_posterior
+from score_calculator_util import log_model_posterior, p_phi_given_model, _p_model_given_phi
 from util import  determine_all_pairwise_occurance_counts
 from common import Models
 from common import _EPSILON
@@ -16,9 +16,18 @@ def _calc_to_min_val(alphas,betas,phis,pairwise_occurances):
     n_mut = len(alphas)
     assert n_mut==len(betas)
     assert n_mut==len(phis)
-    AB_scores     = np.array([[log_model_posterior(Models.A_B,pairwise_occurances[:,:,i,j],alphas[i],alphas[j],betas[i],betas[j],phis[i],phis[j]) for j in range(n_mut)] for i in range(n_mut)])
+    AB_scores     = np.array([[ _p_model_given_phi(Models.A_B,phis[i],phis[j])
+                                 - p_phi_given_model(Models.A_B,phis[i],phis[j])
+                                 + log_model_posterior(Models.A_B,pairwise_occurances[:,:,i,j],alphas[i],alphas[j],betas[i],betas[j],phis[i],phis[j]) 
+                                for j in range(n_mut)]
+                            for i in range(n_mut)])
     BA_scores     = np.transpose(AB_scores)
-    branch_scores = np.array([[log_model_posterior(Models.diff_branches,pairwise_occurances[:,:,i,j],alphas[i],alphas[j],betas[i],betas[j],phis[i],phis[j]) if i>=j else 0 for j in range(n_mut)] for i in range(n_mut)])
+    branch_scores = np.array([[_p_model_given_phi(Models.diff_branches,phis[i],phis[j])
+                                - p_phi_given_model(Models.diff_branches,phis[i],phis[j])
+                                + log_model_posterior(Models.diff_branches,pairwise_occurances[:,:,i,j],alphas[i],alphas[j],betas[i],betas[j],phis[i],phis[j])
+                                if i>=j else 0 
+                               for j in range(n_mut)] 
+                              for i in range(n_mut)])
     branch_scores = branch_scores + np.transpose(branch_scores)
     
     #incorporate phi constraints

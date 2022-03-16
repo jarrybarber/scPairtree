@@ -4,7 +4,7 @@ from numba import njit
 from scipy.special import loggamma, logsumexp
 from collections import namedtuple
 
-from common import Models
+from common import Models, DataRangeIdx, DataRange
 
 #Note, this may work better as a pandas object so that any sorting of 
 #snvs and cells automatically works when sorting data matrix.
@@ -37,19 +37,20 @@ def load_sim_data(fn):
             count += 1
     return _Data(data=np.array(data),n_snvs=len(data),n_cells=len(data[0]),snv_ids=snv_ids)
 
-def determine_all_pairwise_occurance_counts(data):
-    dat_vals = (0,1,3)
-    pairwise_occurances = np.swapaxes(np.array([[determine_pairwise_occurance_counts(data, [i,j]) for i in (0,1,3)] for j in (0,1,3)]),0,1)
+def determine_all_pairwise_occurance_counts(data, d_rng_i = DataRangeIdx.ref_var_nodata):
+    dat_vals = DataRange[d_rng_i]
+    pairwise_occurances = np.swapaxes(np.array([[determine_pairwise_occurance_counts(data, [i,j]) for i in dat_vals] for j in dat_vals]),0,1)
 
     return pairwise_occurances, dat_vals
+
 
 def determine_pairwise_occurance_counts(data,pair_val):
     # This will take data of the form nMuts x nCells and a pair value and determine 
     # the counts of the pair value across every possible pair. E.g., how many times 
     # a [1 0] or a [0,3] occurs in the data for a mutation pair
     assert len(pair_val)==2
-    assert pair_val[0] in (0,1,3)
-    assert pair_val[1] in (0,1,3)
+    assert pair_val[0] in (0,1,2,3)
+    assert pair_val[1] in (0,1,2,3)
 
     #First, we need separate boolean matricies for each condition
     has_1st = (data==pair_val[0]).astype(float) #Strange issue with int matricies where it takes forever to calculate. switch to float for mat mult, then switch back
@@ -159,26 +160,26 @@ def remove_rowcol(arr, indices):
     return arr
 
 # From Jeff <3 (Not used at the moment. Still using scipy for logsumexp and loggamma)
-# @njit
-# def logsumexp(V, axis=None):
-#     B = np.max(V)
-#     # Explicitly checking `axis` is necessary for Numba, which doesn't support
-#     # `axis=None` in calling `np.sum()`.
-#     if axis is None:
-#       # Avoid NaNs when inputs are all -inf.
-#       # Numba doesn't support `np.isneginf`, alas.
-#       if np.isinf(B) and B < 0:
-#         return B
-#       summed = np.sum(np.exp(V - B))
-#     else:
-#       # NB: this is suboptimal, since we should call `np.max(V, axis)`, but Numba
-#       # doesn't yet support the axis argument. So, we end up using the scalar
-#       # maximum across the entire array, not the vector maximum across the axis.
-#       #
-#       # NB part deux: if all the elements across one axis of the array are -inf,
-#       # this will break and return NaN, when it should instead return -inf. So
-#       # long as `np.max(..., axis)` isn't supported in Numba, this is non-trivial
-#       # to fix.
-#       summed = np.sum(np.exp(V - B), axis)
-#     log_sum = B + np.log(summed)
-#     return log_sum
+@njit
+def logsumexp(V, axis=None):
+    B = np.max(V)
+    # Explicitly checking `axis` is necessary for Numba, which doesn't support
+    # `axis=None` in calling `np.sum()`.
+    if axis is None:
+      # Avoid NaNs when inputs are all -inf.
+      # Numba doesn't support `np.isneginf`, alas.
+      if np.isinf(B) and B < 0:
+        return B
+      summed = np.sum(np.exp(V - B))
+    else:
+      # NB: this is suboptimal, since we should call `np.max(V, axis)`, but Numba
+      # doesn't yet support the axis argument. So, we end up using the scalar
+      # maximum across the entire array, not the vector maximum across the axis.
+      #
+      # NB part deux: if all the elements across one axis of the array are -inf,
+      # this will break and return NaN, when it should instead return -inf. So
+      # long as `np.max(..., axis)` isn't supported in Numba, this is non-trivial
+      # to fix.
+      summed = np.sum(np.exp(V - B), axis)
+    log_sum = B + np.log(summed)
+    return log_sum

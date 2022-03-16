@@ -8,7 +8,8 @@ from progressbar import progressbar
 import hyperparams as hparams
 import util
 import common
-from common import Models, NUM_MODELS
+from common import Models, DataType, DataTypeSets
+from score_calculator_util import p_data_given_truth_and_errors
 
 from collections import namedtuple
 TreeSample = namedtuple('TreeSample', (
@@ -19,51 +20,27 @@ TreeSample = namedtuple('TreeSample', (
 
 
 # @njit
-def _calc_tree_llh(data, anc, alpha, beta):
-    #This will have to be made by me. Jeff uses a function called "_calc_llh_phi" which
-    #estimates the llh given the tree by making use of an MLE of the phis.
-    #
-    #I have my own method which is more exact and should (hopefully) be just as fast.
-    #Let's get started:
-
+def _calc_tree_llh(data, anc, alpha, beta, dtype=DataType.ref_var_nodata):
     #First, I need to calculate the number of true positives/negatives, and false positives/negatives for
     #the case of each cell being assigned to each node.
-    s = time.time()
     #Note: matrix multiplication is optimized when the elements are floats, but not if they are integers.
     # --> Swap to using floats for these calcs.
-    anc_comp = anc[1:,1:].astype(float)
-    not_anc_comp = np.logical_not(anc_comp).astype(float)
-    D_comp = (data == 1).astype(float)
-    not_D_comp = (data == 0).astype(float)
-    e = time.time()
-    # print("Making comp mats",e-s)
-    # True Positives:
-    s = time.time()
-    n_TP = anc_comp.T @ D_comp
-    e = time.time()
-    # print("Calcing n_TP:",e-s)
-    # False Negatives:
-    s = time.time()
-    n_FN = anc_comp.T @ not_D_comp
-    e = time.time()
-    # print("Calcing n_FN:",e-s)
-    # True Negatives:
-    s = time.time()
-    n_TN = not_anc_comp.T @ not_D_comp
-    e = time.time()
-    # print("Calcing n_TN:",e-s)
-    # False Positives:
-    s = time.time()
-    n_FP = not_anc_comp.T @ D_comp
-    e = time.time()
-    # print("Calcing n_FP:",e-s)
-
-    #Second, I can pass that through my equation for tree LLH to get the final result.
-    s = time.time()
-    cell_at_mut_contribution = n_FP*np.log(alpha) + n_FN*np.log(beta) + n_TN*np.log(1-alpha) + n_TP*np.log(1-beta)
+    
+    d_set = DataTypeSets[dtype]
+    n_mut, n_cell = data.shape
+    assert len(alpha) == n_mut
+    assert len(beta)  == n_mut
+    
+    cell_at_mut_contribution = np.zeros((n_mut,n_cell))
+    for t in [0,1]:
+        anc_comp = (anc[1:,1:]==t) + 0.0
+        for d in d_set:
+            D_comp = (data == d) + 0.0
+            
+            p_dgte = np.array([p_data_given_truth_and_errors(d,t,alpha[i],beta[i],dtype) for i in range(n_mut)])[np.newaxis].T @ np.ones((1,n_cell)) #Probability of datapoint given hidden truth and error rates P(d|t,Theta)
+            n_dgt  = anc_comp.T @ D_comp #Determines for each cell, the number of datapoints within it called d with given truth t, with t determined by a cell being assigned to each node in the given tree.
+            cell_at_mut_contribution += n_dgt*np.log(p_dgte)
     tree_llh = np.sum(logsumexp(cell_at_mut_contribution,axis=0))
-    e = time.time()
-    # print("The rest:",e-s)
     return tree_llh
 
 

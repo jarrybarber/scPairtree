@@ -17,6 +17,14 @@ Models = _ModelChoice(garbage=0, cocluster=1, A_B=2, B_A=3, diff_branches=4)
 NUM_MODELS = len(Models)
 ALL_MODELS = _ModelChoice._fields
 
+_DataType = namedtuple('_Datatype', (
+  'var_notvar',
+  'ref_var_nodata',
+  'ref_hetvar_homvar_nodata'
+))
+DataRangeIdx = _DataType(var_notvar=0, ref_var_nodata=1, ref_hetvar_homvar_nodata=2)
+DataRange = ((0,1),(0,1,3),(0,1,2,3))
+
 
 def debug(*args, **kwargs):
     if hasattr(debug, 'DEBUG') and debug.DEBUG:
