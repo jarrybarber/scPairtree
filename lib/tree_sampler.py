@@ -8,8 +8,8 @@ from progressbar import progressbar
 import hyperparams as hparams
 import util
 import common
-from common import Models, DataType, DataTypeSets
-from score_calculator_util import p_data_given_truth_and_errors
+from common import Models, DataRange, DataRangeIdx
+from pairs_tensor_util import p_data_given_truth_and_errors
 
 from collections import namedtuple
 TreeSample = namedtuple('TreeSample', (
@@ -20,16 +20,16 @@ TreeSample = namedtuple('TreeSample', (
 
 
 # @njit
-def _calc_tree_llh(data, anc, alpha, beta, dtype=DataType.ref_var_nodata):
+def _calc_tree_llh(data, anc, FPR, ADO, dtype=DataRangeIdx.ref_var_nodata):
     #First, I need to calculate the number of true positives/negatives, and false positives/negatives for
     #the case of each cell being assigned to each node.
     #Note: matrix multiplication is optimized when the elements are floats, but not if they are integers.
     # --> Swap to using floats for these calcs.
     
-    d_set = DataTypeSets[dtype]
+    d_set = DataRange[dtype]
     n_mut, n_cell = data.shape
-    assert len(alpha) == n_mut
-    assert len(beta)  == n_mut
+    assert len(FPR) == n_mut
+    assert len(ADO)  == n_mut
     
     cell_at_mut_contribution = np.zeros((n_mut,n_cell))
     for t in [0,1]:
@@ -37,7 +37,7 @@ def _calc_tree_llh(data, anc, alpha, beta, dtype=DataType.ref_var_nodata):
         for d in d_set:
             D_comp = (data == d) + 0.0
             
-            p_dgte = np.array([p_data_given_truth_and_errors(d,t,alpha[i],beta[i],dtype) for i in range(n_mut)])[np.newaxis].T @ np.ones((1,n_cell)) #Probability of datapoint given hidden truth and error rates P(d|t,Theta)
+            p_dgte = np.array([p_data_given_truth_and_errors(d,t,FPR[i],ADO[i],dtype) for i in range(n_mut)])[np.newaxis].T @ np.ones((1,n_cell)) #Probability of datapoint given hidden truth and error rates P(d|t,Theta)
             n_dgt  = anc_comp.T @ D_comp #Determines for each cell, the number of datapoints within it called d with given truth t, with t determined by a cell being assigned to each node in the given tree.
             cell_at_mut_contribution += n_dgt*np.log(p_dgte)
     tree_llh = np.sum(logsumexp(cell_at_mut_contribution,axis=0))
@@ -341,7 +341,7 @@ def _modify_tree(adj, anc, A, B):
     return adj
 
 
-def _generate_new_sample(old_samp, data, pairs_tensor, alpha, beta):
+def _generate_new_sample(old_samp, data, pairs_tensor, FPR, ADO, d_rng_id):
     #NOTE: This code was copied from Jeff's tree_sampler.py
     #I removed last two inputs for calculating the phis.
 
@@ -392,7 +392,7 @@ def _generate_new_sample(old_samp, data, pairs_tensor, alpha, beta):
     new_samp = TreeSample(
         adj = new_adj,
         anc = new_anc,
-        llh = _calc_tree_llh(data, new_anc, alpha, beta)
+        llh = _calc_tree_llh(data, new_anc, FPR, ADO, d_rng_id)
     )
     e = time.time()
     # print("Calcing tree llh:", e-s)
@@ -450,7 +450,7 @@ def _generate_new_sample(old_samp, data, pairs_tensor, alpha, beta):
     return (new_samp, log_p_new_given_old, log_p_old_given_new)
 
 
-def _init_chain(seed, data, pairs_tensor, alpha, beta):
+def _init_chain(seed, data, pairs_tensor, FPR, ADO, d_rng_id):
     #NOTE: This code was copied from Jeff's tree_sampler.py
 
     # Ensure each chain gets a new random state. I add chain index to initial
@@ -474,7 +474,7 @@ def _init_chain(seed, data, pairs_tensor, alpha, beta):
 
     init_anc = make_ancestral_from_adj(init_adj)
 
-    init_llh = _calc_tree_llh(data, init_anc, alpha, beta)
+    init_llh = _calc_tree_llh(data, init_anc, FPR, ADO, d_rng_id)
 
     init_samp = TreeSample(
         adj = init_adj,
@@ -485,13 +485,13 @@ def _init_chain(seed, data, pairs_tensor, alpha, beta):
 
 
 
-def _run_chain(data, pairs_tensor, alpha, beta, nsamples, thinned_frac, seed, progress_queue=None):
+def _run_chain(data, pairs_tensor, FPR, ADO, nsamples, thinned_frac, seed, d_rng_id, progress_queue=None):
     #Note: Taken from Jeff's tree_sampler.
     #I am going to strip out a bunch of stuff I don't need (yet).
 
     assert nsamples > 0
 
-    samps = [_init_chain(seed, data, pairs_tensor, alpha, beta)]
+    samps = [_init_chain(seed, data, pairs_tensor, FPR, ADO, d_rng_id)]
     accepted = 0
     if progress_queue is not None:
         progress_queue.put(0)
@@ -521,8 +521,9 @@ def _run_chain(data, pairs_tensor, alpha, beta, nsamples, thinned_frac, seed, pr
             old_samp,
             data,
             pairs_tensor,
-            alpha,
-            beta
+            FPR,
+            ADO,
+            d_rng_id
         )
         log_p_transition = (new_samp.llh - old_samp.llh) + (log_p_old_given_new - log_p_new_given_old)
         U = np.random.uniform()
@@ -552,7 +553,7 @@ def _run_chain(data, pairs_tensor, alpha, beta, nsamples, thinned_frac, seed, pr
     )
 
 
-def sample_trees(sc_data, pairs_tensor, FPR, FNR, trees_per_chain, burnin, nchains, thinned_frac, seed, parallel):
+def sample_trees(sc_data, pairs_tensor, FPR, ADO, trees_per_chain, burnin, nchains, thinned_frac, seed, parallel, d_rng_id):
 
     assert nchains > 0
     assert trees_per_chain > 0
@@ -585,7 +586,7 @@ def sample_trees(sc_data, pairs_tensor, FPR, FNR, trees_per_chain, burnin, nchai
                 for C in range(nchains):
                     # Ensure each chain's random seed is different from the seed used to
                     # seed the initial Pairtree invocation, yet nonetheless reproducible.
-                    jobs.append(ex.submit(_run_chain, sc_data, pairs_tensor, FPR, FNR, trees_per_chain, thinned_frac, seed + C + 1, progress_queue))
+                    jobs.append(ex.submit(_run_chain, sc_data, pairs_tensor, FPR, ADO, trees_per_chain, thinned_frac, seed + C + 1, d_rng_id, progress_queue))
 
                 while True:
                     finished = 0
@@ -640,7 +641,7 @@ def sample_trees(sc_data, pairs_tensor, FPR, FNR, trees_per_chain, burnin, nchai
     else:
         results = []
         for C in range(nchains):
-            results.append(_run_chain(sc_data, pairs_tensor, FPR, FNR, trees_per_chain, thinned_frac, seed + C + 1))
+            results.append(_run_chain(sc_data, pairs_tensor, FPR, ADO, trees_per_chain, thinned_frac, seed + C + 1, d_rng_id))
 
     merged_adj = []
     merged_llh = []
@@ -653,3 +654,36 @@ def sample_trees(sc_data, pairs_tensor, FPR, FNR, trees_per_chain, burnin, nchai
         accept_rates.append(accept_rate)
     assert len(merged_adj) == len(merged_llh)
     return (merged_adj, merged_llh, accept_rates)
+
+
+def compute_posterior(adjms, llhs, sort_by_llh=True):
+    #NOTE: modified by Jarry, March 2022
+    unique = {}
+
+    for A, L in zip(adjms, llhs):
+        parents = util.convert_adjmatrix_to_parents(A)
+        H = hash(parents.tobytes())
+        if H in unique:
+            assert np.isclose(L, unique[H]['llh'])
+            assert np.array_equal(parents, unique[H]['struct'])
+            unique[H]['count'] += 1
+        else:
+            unique[H] = {
+                'struct': parents,
+                'llh': L,
+                'count': 1,
+            }
+
+    if sort_by_llh:
+        unique = sorted(unique.values(), key = lambda T: -(np.log(T['count']) + T['llh']))
+    else:
+        unique = list(unique.values())
+    unzipped = {key: np.array([U[key] for U in unique]) for key in unique[0].keys()}
+    unzipped['prob'] = util.softmax(np.log(unzipped['count']) + unzipped['llh'])
+
+    return (
+        unzipped['struct'],
+        unzipped['count'],
+        unzipped['llh'],
+        unzipped['prob'],
+    )

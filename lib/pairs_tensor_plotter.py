@@ -46,7 +46,7 @@ def plot_raw_scores(tensor, show_fig=False, save_fig=True, outdir="", save_name 
 def plot_best_model(tensor, show_fig=False, save_fig=True, outdir="", snv_ids=None, save_name="best_models.png"):
 
     best_models = np.argmax(tensor,axis=2)+1
-    best_models = best_models - np.tril(best_models,k=-1)
+    best_models = best_models - np.tril(best_models,k=0)
 
     plt.figure(figsize=(16,10))
     ax = plt.axes()

@@ -24,6 +24,22 @@ OUT_DIR  = os.path.join(BASE_DIR,"out")
 RUNS_DIR = os.path.join(BASE_DIR,"runs")
 
 
+def load_data(fn, data_dir=None):
+    #Loads a data file without column or row labels.
+    #If there is a .mutnames, then will load that and set as mutation names
+    
+    if data_dir is not None:
+        fn = os.path.join(data_dir,fn) 
+    data = np.loadtxt(fn)
+
+    if os.path.isfile(fn + ".mutnames"):
+        mut_names = np.loadtxt(fn + ".mutnames",dtype=str)
+    else:
+        mut_names = np.arange(data.shape[0])
+
+    return data, mut_names
+
+
 def load_sim_data(fn):
     data = []
     snv_ids = []
@@ -37,7 +53,7 @@ def load_sim_data(fn):
             count += 1
     return _Data(data=np.array(data),n_snvs=len(data),n_cells=len(data[0]),snv_ids=snv_ids)
 
-def determine_all_pairwise_occurance_counts(data, d_rng_i = DataRangeIdx.ref_var_nodata):
+def determine_all_pairwise_occurance_counts(data, d_rng_i):
     dat_vals = DataRange[d_rng_i]
     pairwise_occurances = np.swapaxes(np.array([[determine_pairwise_occurance_counts(data, [i,j]) for i in dat_vals] for j in dat_vals]),0,1)
 
@@ -51,7 +67,6 @@ def determine_pairwise_occurance_counts(data,pair_val):
     assert len(pair_val)==2
     assert pair_val[0] in (0,1,2,3)
     assert pair_val[1] in (0,1,2,3)
-
     #First, we need separate boolean matricies for each condition
     has_1st = (data==pair_val[0]).astype(float) #Strange issue with int matricies where it takes forever to calculate. switch to float for mat mult, then switch back
     has_2nd = (data==pair_val[1]).astype(float)
@@ -60,6 +75,18 @@ def determine_pairwise_occurance_counts(data,pair_val):
 
     return count_mat.astype(int)
 
+#Taken from Jeff's Pairtree
+def convert_parents_to_adjmatrix(parents):
+  K = len(parents) + 1
+  adjm = np.eye(K)
+  adjm[parents,np.arange(1, K)] = 1
+  return adjm
+
+#Taken from Jeff's Pairtree
+def convert_adjmatrix_to_parents(adj):
+  adj = np.copy(adj)
+  np.fill_diagonal(adj, 0)
+  return np.argmax(adj[:,1:], axis=0)
 
 def calc_tensor_prob(tensor):
     #Should be 3 axis: 1st for models, 2nd and 3rd for SNV comps

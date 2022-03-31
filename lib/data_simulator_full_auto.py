@@ -6,11 +6,11 @@ import sys
 import argparse
 from util import DATA_DIR
 from tree_util import make_ancestral_from_adj
-from score_calculator_util import p_data_given_truth_and_errors
+from pairs_tensor_util import p_data_given_truth_and_errors
 from common import DataRange, DataRangeIdx
 
 
-def _save_data(data):
+def _save_data(data,real_tree_info):
     #Can do this one later when I feel like it.
     #Will have to set an output location and save all of the input parameters as well.
     return
@@ -29,10 +29,23 @@ def _apply_errors(real_data,FPR,ADO):
     data = np.zeros(real_data.shape)
     ps_gt0 = [p_data_given_truth_and_errors(d,0,FPR,ADO,d_rng_i) for d in r_rng]
     ps_gt1 = [p_data_given_truth_and_errors(d,1,FPR,ADO,d_rng_i) for d in r_rng]
-    data = data + (real_data==0).astype(int) * np.random.choice(r_rng, data.shape, p=ps_gt0)
-    data = data + (real_data==1).astype(int) * np.random.choice(r_rng, data.shape, p=ps_gt1)
+    data = data + np.multiply((real_data==0).astype(int), np.random.choice(r_rng, data.shape, p=ps_gt0))
+    data = data + np.multiply((real_data==1).astype(int), np.random.choice(r_rng, data.shape, p=ps_gt1))
 
     return data
+
+def _put_data_in_drange_format(data, d_rng_id=DataRangeIdx.ref_var_nodata):
+    if d_rng_id==DataRangeIdx.ref_hetvar_homvar_nodata:
+        return np.copy(data)
+    elif d_rng_id==DataRangeIdx.ref_var_nodata:
+        to_ret = np.copy(data)
+        to_ret[to_ret==2] = 1
+        return to_ret
+    elif d_rng_id==DataRangeIdx.var_notvar:
+        to_ret = np.copy(data)
+        to_ret[to_ret==2] = 1
+        to_ret[to_ret==3] = 0
+        return to_ret
 
 def _generate_error_free_data(anc_mat, cell_assignments, mut_assignments):
     #Switch to one-hot encoding
@@ -68,7 +81,7 @@ def _generate_tree_structure(n_clust):
 
     return adj_mat, anc_mat
 
-def generate_simulated_data(n_clust,n_cells,n_muts,FPR,ADO,cell_alpha,mut_alpha):
+def generate_simulated_data(n_clust,n_cells,n_muts,FPR,ADO,cell_alpha,mut_alpha,drange):
     adj_mat, anc_mat = _generate_tree_structure(n_clust)
     
     cell_assignments = _assign_to_subclones(n_cells, n_clust, a=cell_alpha)
@@ -76,6 +89,7 @@ def generate_simulated_data(n_clust,n_cells,n_muts,FPR,ADO,cell_alpha,mut_alpha)
 
     real_data = _generate_error_free_data(anc_mat,cell_assignments,mut_assignments)
     data = _apply_errors(real_data,FPR,ADO)
+    data = _put_data_in_drange_format(data,drange)
     return data, (real_data, adj_mat, cell_assignments, mut_assignments)
 
 def get_args():
@@ -97,6 +111,8 @@ def get_args():
         help='Allelic dropout rate.')
     parser.add_argument('P', dest='FPR', type=float, default=0.005,
         help='False positive rate.')
+    parser.add_argument('--data-range', dest='d_rng_id', type=int, default=1,
+        help='Data range id. There are 3 options: (0: [0,1]; 1: [0,1,3]; 2: [1,2,3])')
     parser.add_argument('--cell-alpha', dest='cell_alpha', type=float, default=0.5,
         help='Dirichlet distribution parameter for distributing cells to the clusters.')
     parser.add_argument('--mut-alpha', dest='mut_alpha', type=float, default=1.,
@@ -123,11 +139,12 @@ def main():
         args.FPR,
         args.ADO,
         args.cell_alpha,
-        args.mut_alpha
+        args.mut_alpha,
+        args.d_rng_id
         )
 
     if args.save_data:
-        _save_data(data)
+        _save_data(data,real_tree_info)
         return
     else:
         return data

@@ -4,17 +4,15 @@ import argparse
 import numpy as np
 import pickle
 import random
-<<<<<<< HEAD
-=======
 import multiprocessing
->>>>>>> ae7ebd792f2632798d380b2ed8bdd9fb83c3a38e
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'lib'))
 from error_rate_estimator import estimate_error_rates
-from score_calculator_quad_method import calc_ancestry_tensor, complete_tensor
+from score_calculator import calc_ancestry_tensor, complete_tensor
 from tree_sampler import sample_trees
-from data_simulator_full_auto import generate_simulated_data
+from data_simulator_full_auto import generate_simulated_data, _apply_errors, _put_data_in_drange_format
+from common import DataRange, DataRangeIdx
 
 
 def _parse_args():
@@ -40,6 +38,8 @@ def _parse_args():
         help='Number of cells to simulate in dataset')
     parser.add_argument('-M', dest='n_mut', type=int, default=20,
         help='Number of mutations to simulate in dataset')
+    parser.add_argument('--ado-varies', dest='ado_varies', action='store_true',
+        help='Whether or not to vary the ADO across mutations.')
     parser.add_argument('-A', dest='ADO', type=float, default=0.5,
         help='Allelic dropout rate.')
     parser.add_argument('-P', dest='FPR', type=float, default=0.005,
@@ -48,10 +48,12 @@ def _parse_args():
         help='Dirichlet distribution parameter for distributing cells to the clusters.')
     parser.add_argument('--mut-alpha', dest='mut_alpha', type=float, default=1,
         help='Dirichlet distribution parameter for distributing mutations to the clusters.')
+    parser.add_argument('--data-range', dest='d_rng_id', type=int, default=DataRangeIdx.ref_var_nodata,
+        help='Data range id. There are 3 options: (0: [0,1]; 1: [0,1,3]; 2: [0,1,2,3])')
     args = parser.parse_args()
     return args
 
-def save_data(args,data,true_tree,FPR,FNR,pairs_tensor,trees,runtimes,save_dir):
+def save_data(args,data,true_tree,FPR,est_ADO,ADOs,pairs_tensor,trees,runtimes,save_dir):
     if not os.path.isdir(save_dir):
         os.makedirs(save_dir)
     with open(os.path.join(save_dir,"results"),'wb') as f:
@@ -59,11 +61,13 @@ def save_data(args,data,true_tree,FPR,FNR,pairs_tensor,trees,runtimes,save_dir):
         pickle.dump(data,f)
         pickle.dump(true_tree,f)
         pickle.dump(FPR,f)
-        pickle.dump(FNR,f)
+        pickle.dump(est_ADO,f)
+        pickle.dump(ADOs,f)
         pickle.dump(pairs_tensor,f)
         pickle.dump(trees,f)
         pickle.dump(runtimes,f)
     return
+
 
 def main():
     args = _parse_args()
@@ -90,32 +94,45 @@ def main():
         tree_chains = max(1, parallel)
 
     
-    n_cells = args.n_clust*args.n_cells_p_c
-    n_muts = args.n_clust*args.n_muts_p_c
-    this_save_dir = os.path.join(save_dir,"clsts{}_muts{}_cells{}_FPR{}_ADO{}".format(str(args.n_clust),str(n_muts),str(n_cells),str(args.FPR).replace('.','p'),str(args.ADO).replace('.','p')))
+    this_save_dir = os.path.join(save_dir,"clsts{}_muts{}_cells{}_FPR{}_ADO{}_drng_{}".format(str(args.n_clust),str(args.n_mut),str(args.n_cell),str(args.FPR).replace('.','p'),str(args.ADO).replace('.','p'),str(args.d_rng_id)))
+    print("Generating data...")
     data, true_tree = generate_simulated_data(args.n_clust, 
                                                 args.n_cell, 
                                                 args.n_mut, 
                                                 args.FPR, 
                                                 args.ADO, 
                                                 args.cell_alpha, 
-                                                args.mut_alpha
+                                                args.mut_alpha,
+                                                args.d_rng_id
                                                 )
+    if args.ado_varies:
+        error_free_data = true_tree[0]
+        ADO_tightness = 20
+        ADOs = np.random.beta(args.ADO*ADO_tightness, ADO_tightness*(1-args.ADO), args.n_mut)
+        for i in range(args.n_mut):
+            data[i,:] = _apply_errors(np.matrix(error_free_data[i,:]),args.FPR,ADOs[i])[0]
+        data = _put_data_in_drange_format(data, args.d_rng_id)
+    else:
+        ADOs = args.ADO
     s = time.time()
-    est_FPR, est_FNR = estimate_error_rates(data, subsample_cells=200, subsample_snvs=50, init_grid_search=True)
+    print("Estimating error rates...")
+    err_rates, _ = estimate_error_rates(data)
+    est_FPR, est_ADO, _ = err_rates
     e = time.time()
     rt_ER_est = e-s
-    print("Time to estimate error rates:", rt_ER_est)
+    print("\tTime to estimate error rates:", rt_ER_est)
     s = time.time()
-    pairs_tensor = calc_ancestry_tensor(data, est_FPR, est_FNR, verbose=False, scale_integrand=True)
+    print("Constructing pairs tensor...")
+    pairs_tensor = calc_ancestry_tensor(data, est_FPR, est_ADO, verbose=False, scale_integrand=True)
     pairs_tensor = complete_tensor(pairs_tensor)
     e = time.time()
     rt_PT_calc = e-s
     s = time.time()
+    print("Sampling trees...")
     trees = sample_trees(data, 
                         pairs_tensor, 
-                        FPR=est_FPR, 
-                        FNR= est_FNR, 
+                        FPR= est_FPR, 
+                        ADO= est_ADO, 
                         trees_per_chain=args.trees_per_chain, 
                         burnin=args.burnin, 
                         nchains=tree_chains, 
@@ -125,8 +142,9 @@ def main():
     e = time.time()
     rt_sample_trees = e-s
     runtimes = {"ER_est": rt_ER_est, "pairs_tensor_calc": rt_PT_calc, "tree_sampling":rt_sample_trees}
-    save_data(args, data, true_tree, est_FPR, est_FNR, pairs_tensor, trees, runtimes, this_save_dir)
-                
+    print("Saving data...")
+    save_data(args, data, true_tree, est_FPR, est_ADO, ADOs, pairs_tensor, trees, runtimes, this_save_dir)
+    print("Donzo!")
     return
 
 if __name__ == "__main__":

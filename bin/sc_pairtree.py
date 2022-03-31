@@ -1,19 +1,25 @@
 import argparse
 import os
+from pickle import NONE
 import sys
 import numpy as np
 import multiprocessing
 import random
 import matplotlib.pyplot as plt
+import warnings
+
+from sklearn.exceptions import DataConversionWarning
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
 import hyperparams
-from util import load_sim_data
+from util import load_data
 from error_rate_estimator import estimate_error_rates
-from score_calculator_quad_method import calc_ancestry_tensor, complete_tensor
-from tree_sampler import sample_trees
+from pairs_tensor_constructor import construct_pairs_tensor, complete_tensor
+from tree_sampler import sample_trees, compute_posterior
 from tree_plotter import plot_tree
 from pairs_tensor_plotter import plot_best_model
+from common import DataRange, DataRangeIdx
+from result_serializer import Results
 
 
 def _parse_args():
@@ -25,7 +31,11 @@ def _parse_args():
 #   parser.add_argument('--verbose', action='store_true',
 #     help='Print debugging messages')
     parser.add_argument('--seed', dest='seed', type=int,
-        help='Integer seed used for pseudo-random number generator. Running Pairtree with the same seed on the same inputs will produce exactly the same result.')
+        help='Integer seed used for pseudo-random number generator. Running scPairtree with the same seed on the same inputs will produce exactly the same result.')
+    parser.add_argument('--data-range', dest='d_rng_i', type=int, default=None,
+        help='Data range id. There are 3 options: (0: [0,1]; 1: [0,1,3]; 2: [1,2,3])')
+    parser.add_argument('--variable-ado', dest='variable_ado', action='store_true',
+        help='When estimating error rates, treat ADO as mutation specific. Else, ADO is treated as a global parameter for the entire dataset.')
     parser.add_argument('--parallel', dest='parallel', type=int, default=None,
         help='Number of tasks to run in parallel. By default, this is set to the number of CPU cores on the system. On hyperthreaded systems, this will be twice the number of physical CPUs.')
 #   parser.add_argument('--params', dest='params_fn',
@@ -72,86 +82,125 @@ def _get_default_args(args):
     else:
         # Maximum seed is 2**32 - 1.
         seed = np.random.randint(2**32)
-    return parallel, tree_chains, seed
-
-
-def temp_show_it_works(adjs,llhs,accept_rates,FPR,FNR,pairs_tensor,results_fn,save_dir):
-    out_dir = os.path.join(os.path.dirname(__file__), '..', 'out', 'sc_pairtree',save_dir)
     
-    with open(os.path.join(out_dir,"estimated_error_rates.txt"),'w') as f:
-        f.write("FPR\tFNR\n")
-        f.write(str(FPR) + '\t' + str(FNR))
+    if args.d_rng_i is None:
+        d_rng_i = DataRangeIdx.ref_var_nodata
+        #Might turn this into an error
+        warnings.warn("Data range argument has not been specified. \n\nThis argument specifies whether the input data has known ranges: \n\t - \"no variant\" and \"variant\" [0,1] \n\t - \"reference\", \"variant\" and \"no data\" [0,1,3] \n\t - \"reference\", \" heterzygous variant\", \"homozygous variant\" and \"no data\" [0,1,2,3]. \n\nDefault is [0,1,3]")
+    else:
+        d_rng_i = args.d_rng_i
 
-    plot_best_model(pairs_tensor,outdir=out_dir,save_name="pairs_matrix.png")
-
-    best_tree = np.argmax(llhs)
-    f = plot_tree(adjs[best_tree])
-    plt.savefig(os.path.join(out_dir, "best_tree.png"))
+    return parallel, tree_chains, seed, d_rng_i
 
 
-def run(data,seed):
+def run(data, d_rng_i, variable_ado, trees_per_chain, burnin, tree_chains, thinned_frac, seed, parallel, res):
     assert len(data.shape) == 2
     n_muts, n_cells = data.shape
-    assert (n_muts > 0) & (n_cells > 0)
-    print("Estimating error rates...")
-    est_FPR, est_FNR = estimate_error_rates(data,subsample_cells=200,subsample_snvs=100)
-    print("Calculating pairs tensor...")
-    pairs_tensor = calc_ancestry_tensor(data, est_FPR, est_FNR, verbose=False, scale_integrand=True)
-    pairs_tensor = complete_tensor(pairs_tensor)
-    print("Sampling trees...")
-    trees = sample_trees(data, pairs_tensor, FPR=est_FPR, FNR=est_FNR, 
-        trees_per_chain=n_muts*500, 
-        burnin=0.5, 
-        nchains=4, 
-        thinned_frac=0.1, 
-        seed=seed, 
-        parallel=4)
-    return (est_FPR, est_FNR), pairs_tensor, trees
-
-
-def main():
-    ### PARSE ARGUMENTS ###
-    args = _parse_args()
-    _init_hyperparams(args)
-    parallel, tree_chains, seed = _get_default_args(args)
-    
-    np.random.seed(seed)
-    random.seed(seed)
-
-    ### LOAD IN THE DATA ###
-    data = load_sim_data(args.data_fn + "_data.txt")
-
-    ### LOAD IN THE PARAMETERS FILE (IF I MAKE ONE) ###
-
-
-    ### CREATE OBJECT WHICH CAN SAVE THE RESULTS OF THIS RUN ###
-
-
     ### ESTIMATE THE ERROR RATES ###
     print("Estimating error rates...")
-    FPR, FNR = estimate_error_rates(data.data, n_iter=30, subsample_cells=200, subsample_snvs=40)
+    err_rates, _ = estimate_error_rates(data.data, d_rng_i=d_rng_i, variable_ado=variable_ado)
+    FPRs, ADOs, _ = err_rates
 
     ### CREATE THE PAIRS TENSOR ###
-    print("Calculaing pairs tensor...")
-    pairs_tensor = calc_ancestry_tensor(data.data, FPR, FNR, scale_integrand=True)
+    print("Constructing pairs tensor...")
+    pairs_tensor = construct_pairs_tensor(data.data, FPRs, ADOs, d_rng_i=d_rng_i, scale_integrand=True)
     pairs_tensor = complete_tensor(pairs_tensor)
     ### IF I COME UP WITH CO-CLUSTERING METHOD, INSERT HERE ###
 
 
     ### SAMPLE TREES ###
     print("Sampling trees...")
-    adjs, llhs, accept_rates = sample_trees(data.data, pairs_tensor, FPR=FPR, FNR=FNR, 
-        trees_per_chain=args.trees_per_chain, 
-        burnin=args.burnin, 
+    adjs, llhs, accept_rates = sample_trees(data.data, pairs_tensor, FPR=FPRs, ADO=ADOs, 
+        trees_per_chain=trees_per_chain, 
+        burnin=burnin, 
         nchains=tree_chains, 
-        thinned_frac=args.thinned_frac, 
+        thinned_frac=thinned_frac, 
         seed=seed, 
-        parallel=parallel)
+        parallel=parallel,
+        d_rng_id=d_rng_i)
 
-    ### POST-PROCESS TREES (SEE PAIRTREE.COMPUTE_POSTERIOR()) ###
+    return 
 
 
-    temp_show_it_works(adjs,llhs,accept_rates,FPR,FNR,pairs_tensor,args.results_fn,args.data_fn)
+def main():
+    ### PARSE ARGUMENTS ###
+    args = _parse_args()
+    _init_hyperparams(args)
+    parallel, tree_chains, seed, d_rng_i = _get_default_args(args) 
+    np.random.seed(seed)
+    random.seed(seed)
+
+    ### CREATE OBJECT WHICH CAN SAVE THE RESULTS OF THIS RUN ###
+    res = Results(args.results_fn)
+
+
+    ### LOAD IN THE DATA ###
+    if res.has("data"):
+        data = res.get("data")
+    else:
+        data, gene_names = load_data(args.data_fn)
+        res.add("data",data)
+        res.add("gene_names", gene_names)
+        res.save()
+    ### LOAD IN THE PARAMETERS FILE (IF I MAKE ONE) ###
+
+
+    ### ESTIMATE THE ERROR RATES ###
+    if res.has("est_FPRs") & res.has("est_ADOs"):
+        est_FPRs = res.get("est_FPRs")
+        est_ADOs = res.get("est_ADOs")
+    else:
+        print("Estimating error rates...")
+        err_rates, _ = estimate_error_rates(data, d_rng_i=d_rng_i, variable_ado=args.variable_ado)
+        est_FPRs, est_ADOs, _ = err_rates
+        res.add("est_FPRs", est_FPRs)
+        res.add("est_ADOs", est_ADOs)
+        res.save()
+    
+
+    ### CONSTRUCT THE PAIRS TENSOR ###
+    if res.has("pairs_tensor"):
+        pairs_tensor = res.get("pairs_tensor")
+    else:
+        print("Constructing pairs tensor...")
+        pairs_tensor = construct_pairs_tensor(data, est_FPRs, est_ADOs, d_rng_i=d_rng_i, scale_integrand=True)
+        pairs_tensor = complete_tensor(pairs_tensor)
+        res.add("pairs_tensor", pairs_tensor)
+        res.save()
+
+    ### SAMPLE TREES ###
+    if res.has("adj_mats"):
+        adjs = res.get("adj_mats")
+        llhs = res.get("tree_llhs")
+        accept_rates = res.get("accept_rates")
+    else:
+        print("Sampling trees...")
+        adjs, llhs, accept_rates = sample_trees(data, pairs_tensor, FPR=est_FPRs, ADO=est_ADOs, 
+            trees_per_chain=args.trees_per_chain, 
+            burnin=args.burnin, 
+            nchains=tree_chains, 
+            thinned_frac=args.thinned_frac, 
+            seed=seed, 
+            parallel=parallel,
+            d_rng_id=d_rng_i)
+        res.add("adj_mats", np.array(adjs))
+        res.add("tree_llhs", np.array(llhs))
+        res.add("accept_rates", np.array(accept_rates))
+        res.save()
+
+    
+    ### Compute tree posterior ###
+    post_struct, post_count, post_llh, post_prob = compute_posterior(
+      adjs,
+      llhs,
+      True #args.sort_by_llh,
+    )
+    res.add('struct', post_struct)
+    res.add('count', post_count)
+    res.add('llh', post_llh)
+    res.add('prob', post_prob)
+    res.save()
+
 
     return
 

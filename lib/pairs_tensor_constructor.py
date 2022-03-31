@@ -4,15 +4,15 @@ from multiprocessing import Pool
 from scipy.integrate import quad, dblquad
 from scipy.optimize import minimize
 
-from common import Models, NUM_MODELS
+from common import Models, NUM_MODELS, DataRange, DataRangeIdx
 from util import determine_all_pairwise_occurance_counts
-from score_calculator_util import model_posterior, log_model_posterior
+from pairs_tensor_util import model_posterior, log_model_posterior
 
 
 
-def calc_score(data,model,alphas,betas,quad_tol=1e0,verbose=True,scale_integrand=None):
+def construct_model_posterior_matrix(data,model,alphas,betas,d_rng_i,quad_tol=1e0,verbose=True,scale_integrand=None):
     
-    pairwise_occurances, _ = determine_all_pairwise_occurance_counts(data)
+    pairwise_occurances, _ = determine_all_pairwise_occurance_counts(data, d_rng_i)
 
 
     nSNVs, nCells = data.shape
@@ -26,33 +26,33 @@ def calc_score(data,model,alphas,betas,quad_tol=1e0,verbose=True,scale_integrand
 
     
     if model==Models.A_B:
-        to_integrate = lambda phi1,phi2,fpr1,fpr2,ado1,ado2,pairwise_occurances,scale: model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,phi1,phi2,scale)
-        to_min       = lambda x,fpr1,fpr2,ado1,ado2,pairwise_occurances: -log_model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,x[0],x[1])
+        to_integrate = lambda phi1,phi2,fpr1,fpr2,ado1,ado2,pairwise_occurances,scale: model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,phi1,phi2,d_rng_i,scale)
+        to_min       = lambda x,fpr1,fpr2,ado1,ado2,pairwise_occurances: -log_model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,x[0],x[1],d_rng_i)
         x0s = [[x,y] for x in np.linspace(0.01,0.99,5) for y in np.linspace(0.01,0.99,5) if y<=x] #minimization starting point
         L = lambda x: x #Integration lower bound
         U = lambda x: 1 #Integration upper bound
     elif model==Models.B_A:
-        to_integrate = lambda phi1,phi2,fpr1,fpr2,ado1,ado2,pairwise_occurances,scale: model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,phi1,phi2,scale)
-        to_min       = lambda x,fpr1,fpr2,ado1,ado2,pairwise_occurances: -log_model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,x[0],x[1])
+        to_integrate = lambda phi1,phi2,fpr1,fpr2,ado1,ado2,pairwise_occurances,scale: model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,phi1,phi2,d_rng_i,scale)
+        to_min       = lambda x,fpr1,fpr2,ado1,ado2,pairwise_occurances: -log_model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,x[0],x[1],d_rng_i)
         x0s = [[x,y] for x in np.linspace(0.01,0.99,5) for y in np.linspace(0.01,0.99,5) if y>=x]
         L = lambda x: 0
         U = lambda x: x
     elif model==Models.cocluster:
-        to_integrate = lambda phi,fpr1,fpr2,ado1,ado2,pairwise_occurances,scale: model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,phi,phi,scale)
+        to_integrate = lambda phi,fpr1,fpr2,ado1,ado2,pairwise_occurances,scale: model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,phi,phi,d_rng_i,scale)
         def to_min(x,fpr1,fpr2,ado1,ado2,pairwise_occurances):
-            return -log_model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,x[0],x[0])
+            return -log_model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,x[0],x[0],d_rng_i)
         x0s = [[x] for x in np.linspace(0.01,0.99,10)]
         L = lambda x: None
         U = lambda x: None
     elif model==Models.diff_branches:
-        to_integrate = lambda phi1,phi2,fpr1,fpr2,ado1,ado2,pairwise_occurances,scale: model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,phi1,phi2,scale)
-        to_min       = lambda x,fpr1,fpr2,ado1,ado2,pairwise_occurances: -log_model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,x[0],x[1])
+        to_integrate = lambda phi1,phi2,fpr1,fpr2,ado1,ado2,pairwise_occurances,scale: model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,phi1,phi2,d_rng_i,scale)
+        to_min       = lambda x,fpr1,fpr2,ado1,ado2,pairwise_occurances: -log_model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,x[0],x[1],d_rng_i)
         x0s = [[x,y] for x in np.linspace(0.01,0.99,5) for y in np.linspace(0.01,0.99,5) if (x+y)<=1]
         L = lambda x: 0
         U = lambda x: 1-x
     elif model==Models.garbage:
-        to_integrate = lambda phi1,phi2,fpr1,fpr2,ado1,ado2,pairwise_occurances,scale: model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,phi1,phi2,scale)
-        to_min       = lambda x,fpr1,fpr2,ado1,ado2,pairwise_occurances: -log_model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,x[0],x[1])
+        to_integrate = lambda phi1,phi2,fpr1,fpr2,ado1,ado2,pairwise_occurances,scale: model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,phi1,phi2,d_rng_i,scale)
+        to_min       = lambda x,fpr1,fpr2,ado1,ado2,pairwise_occurances: -log_model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,x[0],x[1],d_rng_i)
         x0s = [[x,y] for x in np.linspace(0.01,0.99,5) for y in np.linspace(0.01,0.99,5)]
         L = lambda x: 0
         U = lambda x: 1
@@ -99,9 +99,9 @@ def calc_score(data,model,alphas,betas,quad_tol=1e0,verbose=True,scale_integrand
 
 
 
-def calc_ancestry_tensor(data, alpha, beta, quad_tol=1e0, verbose=True, scale_integrand=None):
+def construct_pairs_tensor(data, alpha, beta, d_rng_i, quad_tol=1e0, verbose=True, scale_integrand=None):
     
-    #calc_score currently assumes that alpha and beta will be passed as a vector to allow for individual error rates
+    #construct_model_posterior_matrix currently assumes that alpha and beta will be passed as a vector to allow for individual error rates
     #If using global error rates and so only input scalar, convert to vector
     nSNVs = data.shape[0]
     if np.isscalar(alpha):
@@ -114,11 +114,11 @@ def calc_ancestry_tensor(data, alpha, beta, quad_tol=1e0, verbose=True, scale_in
     pool = Pool(NUM_MODELS)
     results = {}
     
-    results[Models.A_B] = pool.apply_async(calc_score, args=(np.copy(data), Models.A_B, alpha, beta, quad_tol, verbose, scale_integrand))
-    results[Models.B_A] = pool.apply_async(calc_score, args=(np.copy(data), Models.B_A, alpha, beta, quad_tol, verbose, scale_integrand))
-    results[Models.cocluster] = pool.apply_async(calc_score, args=(np.copy(data), Models.cocluster, alpha, beta, quad_tol, verbose, scale_integrand))
-    results[Models.diff_branches] = pool.apply_async(calc_score, args=(np.copy(data), Models.diff_branches, alpha, beta, quad_tol, verbose, scale_integrand))
-    results[Models.garbage] = pool.apply_async(calc_score, args=(np.copy(data), Models.garbage, alpha, beta, quad_tol, verbose, scale_integrand))
+    results[Models.A_B] = pool.apply_async(construct_model_posterior_matrix, args=(np.copy(data), Models.A_B, alpha, beta, d_rng_i, quad_tol, verbose, scale_integrand))
+    results[Models.B_A] = pool.apply_async(construct_model_posterior_matrix, args=(np.copy(data), Models.B_A, alpha, beta, d_rng_i, quad_tol, verbose, scale_integrand))
+    results[Models.cocluster] = pool.apply_async(construct_model_posterior_matrix, args=(np.copy(data), Models.cocluster, alpha, beta, d_rng_i, quad_tol, verbose, scale_integrand))
+    results[Models.diff_branches] = pool.apply_async(construct_model_posterior_matrix, args=(np.copy(data), Models.diff_branches, alpha, beta, d_rng_i, quad_tol, verbose, scale_integrand))
+    results[Models.garbage] = pool.apply_async(construct_model_posterior_matrix, args=(np.copy(data), Models.garbage, alpha, beta, d_rng_i, quad_tol, verbose, scale_integrand))
     pool.close()
     pool.join()
 

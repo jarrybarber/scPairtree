@@ -1,5 +1,6 @@
 #This will house various constants and structures used by the program
 import numpy as np
+from numba import njit
 from collections import namedtuple
 
 _LOGEPSILON = -30
@@ -24,6 +25,7 @@ _DataType = namedtuple('_Datatype', (
 ))
 DataRangeIdx = _DataType(var_notvar=0, ref_var_nodata=1, ref_hetvar_homvar_nodata=2)
 DataRange = ((0,1),(0,1,3),(0,1,2,3))
+
 
 
 def debug(*args, **kwargs):
