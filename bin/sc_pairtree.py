@@ -7,6 +7,7 @@ import multiprocessing
 import random
 import matplotlib.pyplot as plt
 import warnings
+import time
 
 from sklearn.exceptions import DataConversionWarning
 
@@ -125,15 +126,31 @@ def run(data, d_rng_i, variable_ado, trees_per_chain, burnin, tree_chains, thinn
 def main():
     ### PARSE ARGUMENTS ###
     args = _parse_args()
-    _init_hyperparams(args)
-    parallel, tree_chains, seed, d_rng_i = _get_default_args(args) 
-    np.random.seed(seed)
-    random.seed(seed)
+
 
     ### CREATE OBJECT WHICH CAN SAVE THE RESULTS OF THIS RUN ###
     res = Results(args.results_fn)
+    if res.has("scp_args"):
+        print("sc_pairtree already run using this results filename. Overriding current arguments with previous arguments to avoid overwriting previous results.")
+        d = vars(args)
+        old_args = res.get("scp_args")
+        for k,v in old_args.items():
+            d[k] = v
+        # parallel, tree_chains, seed, d_rng_i = (old_args.parallel, old_args.tree_chains, old_args.seed, old_args.d_rng_i)
+    else:
+        ### SET DEFAULT ARGUMENTS ###
+        args.parallel, args.tree_chains, args.seed, args.d_rng_i = _get_default_args(args) 
+        res.add("scp_args",vars(args))
+    
+    #Leaving this here temporarily so I can update some zip files lazily
+    args.parallel, args.tree_chains, args.seed, args.d_rng_i = _get_default_args(args) 
+    res.add("scp_args",vars(args))
 
+    _init_hyperparams(args)
+    np.random.seed(args.seed)
+    random.seed(args.seed)
 
+    
     ### LOAD IN THE DATA ###
     if res.has("data"):
         data = res.get("data")
@@ -142,8 +159,7 @@ def main():
         res.add("data",data)
         res.add("gene_names", gene_names)
         res.save()
-    ### LOAD IN THE PARAMETERS FILE (IF I MAKE ONE) ###
-
+        
 
     ### ESTIMATE THE ERROR RATES ###
     if res.has("est_FPRs") & res.has("est_ADOs"):
@@ -151,8 +167,10 @@ def main():
         est_ADOs = res.get("est_ADOs")
     else:
         print("Estimating error rates...")
-        err_rates, _ = estimate_error_rates(data, d_rng_i=d_rng_i, variable_ado=args.variable_ado)
+        s = time.time()
+        err_rates, _ = estimate_error_rates(data, d_rng_i=args.d_rng_i, variable_ado=args.variable_ado)
         est_FPRs, est_ADOs, _ = err_rates
+        res.add("est_runtime", time.time()-s)
         res.add("est_FPRs", est_FPRs)
         res.add("est_ADOs", est_ADOs)
         res.save()
@@ -163,8 +181,10 @@ def main():
         pairs_tensor = res.get("pairs_tensor")
     else:
         print("Constructing pairs tensor...")
-        pairs_tensor = construct_pairs_tensor(data, est_FPRs, est_ADOs, d_rng_i=d_rng_i, scale_integrand=True)
+        s = time.time()
+        pairs_tensor = construct_pairs_tensor(data, est_FPRs, est_ADOs, d_rng_i=args.d_rng_i, scale_integrand=True)
         pairs_tensor = complete_tensor(pairs_tensor)
+        res.add("pairs_tensor_runtime", time.time()-s)
         res.add("pairs_tensor", pairs_tensor)
         res.save()
 
@@ -175,14 +195,16 @@ def main():
         accept_rates = res.get("accept_rates")
     else:
         print("Sampling trees...")
+        s = time.time()
         adjs, llhs, accept_rates = sample_trees(data, pairs_tensor, FPR=est_FPRs, ADO=est_ADOs, 
             trees_per_chain=args.trees_per_chain, 
             burnin=args.burnin, 
-            nchains=tree_chains, 
+            nchains=args.tree_chains, 
             thinned_frac=args.thinned_frac, 
-            seed=seed, 
-            parallel=parallel,
-            d_rng_id=d_rng_i)
+            seed=args.seed, 
+            parallel=args.parallel,
+            d_rng_id=args.d_rng_i)
+        res.add("sampling_time", time.time()-s)
         res.add("adj_mats", np.array(adjs))
         res.add("tree_llhs", np.array(llhs))
         res.add("accept_rates", np.array(accept_rates))
@@ -190,6 +212,7 @@ def main():
 
     
     ### Compute tree posterior ###
+    print("Computing tree posterior")
     post_struct, post_count, post_llh, post_prob = compute_posterior(
       adjs,
       llhs,

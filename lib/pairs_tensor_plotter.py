@@ -43,7 +43,10 @@ def plot_raw_scores(tensor, show_fig=False, save_fig=True, outdir="", save_name 
     return
 
 
-def plot_best_model(tensor, show_fig=False, save_fig=True, outdir="", snv_ids=None, save_name="best_models.png"):
+def plot_best_model(tensor, show_fig=False, save_fig=True, outdir="", snv_ids=None, save_name="best_models.png", title=None):
+
+    if not title:
+        title = "Pairs Matrix"
 
     best_models = np.argmax(tensor,axis=2)+1
     best_models = best_models - np.tril(best_models,k=0)
@@ -52,7 +55,7 @@ def plot_best_model(tensor, show_fig=False, save_fig=True, outdir="", snv_ids=No
     ax = plt.axes()
     cMap = ListedColormap(['black', '#984ea3', '#377eb8', '#4daf4a', '#e41a1c', '#ff7f00'])
     plt.imshow(best_models, vmin=-0.5, vmax=5.5, cmap=cMap)
-    plt.title("Ancestry Matrix",fontsize=20)
+    plt.title(title, fontsize=20)
     if snv_ids is not None:
         n_snvs = len(snv_ids)
         # plt.xticks(ticks=(np.linspace(0,n_snvs-1,n_snvs)+0.5),labels=snv_ids, fontsize=12, rotation=90)

@@ -4,7 +4,7 @@ from numba import njit
 from scipy.special import loggamma, logsumexp
 from collections import namedtuple
 
-from common import Models, DataRangeIdx, DataRange
+from common import Models, DataRangeIdx, DataRange, _EPSILON
 
 #Note, this may work better as a pandas object so that any sorting of 
 #snvs and cells automatically works when sorting data matrix.
@@ -76,6 +76,7 @@ def determine_pairwise_occurance_counts(data,pair_val):
     return count_mat.astype(int)
 
 #Taken from Jeff's Pairtree
+@njit
 def convert_parents_to_adjmatrix(parents):
   K = len(parents) + 1
   adjm = np.eye(K)
@@ -83,10 +84,32 @@ def convert_parents_to_adjmatrix(parents):
   return adjm
 
 #Taken from Jeff's Pairtree
+@njit
 def convert_adjmatrix_to_parents(adj):
   adj = np.copy(adj)
   np.fill_diagonal(adj, 0)
-  return np.argmax(adj[:,1:], axis=0)
+  parents = np.zeros(adj.shape[1]-1)
+  for i in range(1,adj.shape[1]):
+    parents[i-1] = find_first(1,adj[:,i])
+  return parents#np.argmax(adj[:,1:], axis=0)
+
+#Taken from Jeff's Pairtree
+@njit
+def compute_node_relations(adj, check_validity=False):
+  K = len(adj)
+  anc = make_ancestral_from_adj(adj, check_validity)
+  np.fill_diagonal(anc, 0)
+
+  R = np.full((K, K), Models.diff_branches, dtype=np.int8)
+  for idx in range(K):
+    R[idx][anc[idx]   == 1] = Models.A_B
+    R[idx][anc[:,idx] == 1] = Models.B_A
+  np.fill_diagonal(R, Models.cocluster)
+
+  if check_validity:
+    assert np.all(R[0]   == Models.A_B)
+    assert np.all(R[:,0] == Models.B_A)
+  return R
 
 def calc_tensor_prob(tensor):
     #Should be 3 axis: 1st for models, 2nd and 3rd for SNV comps
@@ -108,6 +131,19 @@ def softmax(V):
     smax /= np.sum(smax)
     #assert np.isclose(np.sum(smax), 1)
     return smax
+
+@njit
+def isclose(a,b,atol=1e-8,rtol=1e-5):
+    return np.abs(a-b)<(atol + rtol*np.abs(b))
+
+@njit
+def find_first(item, vec):
+    """return the index of the first occurence of item in vec"""
+    for i in range(len(vec)):
+        if item == vec[i]:
+            return i
+    return -1
+
 
 @njit
 def make_ancestral_from_adj(adj, check_validity=False):
@@ -208,5 +244,6 @@ def logsumexp(V, axis=None):
       # long as `np.max(..., axis)` isn't supported in Numba, this is non-trivial
       # to fix.
       summed = np.sum(np.exp(V - B), axis)
+      B = np.ones(summed.shape)
     log_sum = B + np.log(summed)
     return log_sum

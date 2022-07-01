@@ -1,10 +1,11 @@
 import numpy as np
 import time
-from multiprocessing import Pool
+from multiprocessing import Pool, get_context
 from scipy.integrate import quad, dblquad
 from scipy.optimize import minimize
+from scipy.special import logsumexp
 
-from common import Models, NUM_MODELS, DataRange, DataRangeIdx
+from common import Models, NUM_MODELS
 from util import determine_all_pairwise_occurance_counts
 from pairs_tensor_util import model_posterior, log_model_posterior
 
@@ -111,7 +112,9 @@ def construct_pairs_tensor(data, alpha, beta, d_rng_i, quad_tol=1e0, verbose=Tru
     assert len(alpha) == nSNVs
     assert len(beta) == nSNVs
     
-    pool = Pool(NUM_MODELS)
+    #Without using spawn context, these can get stuck in a lock somehow.
+    #I didn't debug too thoroughly, I just know this worked :D
+    pool = get_context("spawn").Pool(NUM_MODELS)
     results = {}
     
     results[Models.A_B] = pool.apply_async(construct_model_posterior_matrix, args=(np.copy(data), Models.A_B, alpha, beta, d_rng_i, quad_tol, verbose, scale_integrand))
@@ -122,10 +125,10 @@ def construct_pairs_tensor(data, alpha, beta, d_rng_i, quad_tol=1e0, verbose=Tru
     pool.close()
     pool.join()
 
-    scores = np.zeros((nSNVs,nSNVs,NUM_MODELS))
+    tensor = np.zeros((nSNVs,nSNVs,NUM_MODELS))
     for k in results:
-        scores[:,:,k] = results[k].get()
-    return scores
+        tensor[:,:,k] = results[k].get()
+    return tensor
 
 
 def complete_tensor(scores):
