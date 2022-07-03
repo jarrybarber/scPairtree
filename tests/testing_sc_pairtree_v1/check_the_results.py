@@ -35,7 +35,6 @@ def main():
         this_dir = os.path.join(results_dir,subdir)
         print(subdir)
         n_clust = int(subdir.split("_")[0].replace("clsts",""))
-<<<<<<< HEAD
         FPR = float(subdir.split("_")[3].replace("FPR","").replace("p",'.'))
         ADO = float(subdir.split("_")[4].replace("ADO","").replace("p",'.'))
         sim_args, data, true_tree, est_FPR, est_FNR, pairs_tensor, trees = load_results(this_dir)
@@ -45,18 +44,12 @@ def main():
         OH_mut_ass = np.eye(real_adj_mat.shape[0])[np.append([0],real_mut_assignments)]
         mut_anc_mat = OH_mut_ass @ real_anc_mat @ OH_mut_ass.T
         true_tree_llh = _calc_tree_llh(data,mut_anc_mat,est_FPR,est_FNR)
-=======
-        data, true_tree, est_FPR, est_FNR, pairs_tensor, trees = load_results(this_dir)
-        adjs, llhs, accept_rates = trees
-        real_data, real_adj_mat, real_cell_assignments, real_mut_assignments = true_tree
->>>>>>> fe82e2eb142bfbbac5f4e94211b564ade07956b7
 
         plot_best_model(pairs_tensor,outdir=this_dir,save_name="pairs_matrix.png")
         best_tree_ind = np.argmax(llhs)
         f = plot_tree(adjs[best_tree_ind],title="Best tree (ind={}; llh={})".format(best_tree_ind, llhs[best_tree_ind]))
         f.savefig(os.path.join(this_dir,"best_tree.png"))
         plt.close()
-<<<<<<< HEAD
 
         f = plot_tree(real_adj_mat,title="True tree - llh={}".format(true_tree_llh))
         f.savefig(os.path.join(this_dir,"actual_tree.png"))
@@ -71,11 +64,6 @@ def main():
         plt.savefig(os.path.join(this_dir,"llhs.png"))
         plt.close()
 
-=======
-        f = plot_tree(real_adj_mat)
-        f.savefig(os.path.join(this_dir,"actual_tree.png"),title="Best tree (ind={}; llh={})".format(best_tree_ind, llhs[best_tree_ind]))
-        plt.close()
->>>>>>> fe82e2eb142bfbbac5f4e94211b564ade07956b7
         with open(os.path.join(this_dir,"info.txt"),"w") as f:
             f.write("est_FPR\t{}\n".format(str(est_FPR)))
             f.write("est_FNR\t{}\n".format(str(est_FNR)))
@@ -86,7 +74,6 @@ def main():
             f.write("Real mut assignments:\n")
             for i in range(n_clust+1):
                 f.write("\t{}:\t{}\n".format(str(i),str([1+x for x in np.where(real_mut_assignments==i)])))
-<<<<<<< HEAD
             f.write("Error free data:\n")
             for i in range(real_data.shape[0]):
                 for j in range(real_data.shape[1]):
@@ -97,8 +84,6 @@ def main():
                 for j in range(data.shape[1]):
                     f.write(str(int(data[i,j]))+' ')
                 f.write('\n')
-=======
->>>>>>> fe82e2eb142bfbbac5f4e94211b564ade07956b7
 
 
 
