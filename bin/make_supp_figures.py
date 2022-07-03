@@ -1,0 +1,96 @@
+#Makes some supplementary figures for the sc_pairtree run
+import os, sys
+import numpy as np
+import matplotlib.pyplot as plt
+import argparse
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
+from result_serializer import Results
+from pairs_tensor_plotter import plot_best_model
+from tree_plotter import plot_tree
+
+def _parse_args():
+    parser = argparse.ArgumentParser(
+        description='Make supplementary figures for sc_pairtree run',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument('--seed', dest='seed', type=int,
+        help='Integer seed used for pseudo-random number generator. Running scPairtree with the same seed on the same inputs will produce exactly the same result.')
+    parser.add_argument('--outdir', dest='outdir', default=None,
+        help='Directory in which to save the figures.')
+    
+    parser.add_argument('results_fn')
+    args = parser.parse_args()
+    return args
+
+def _plot_err_est(fprs,ados,gene_names,outdir):
+    plt.figure()
+    plt.subplot(2,1,1)
+    plt.title("Estimated false positive rates")
+    plt.plot(fprs)
+    plt.xlabel("Muts")
+    plt.ylabel("Error frequency")
+    plt.xticks(np.arange(len(fprs)),gene_names)
+
+    plt.subplot(2,1,2)
+    plt.title("Estimated allelic dropout rate")
+    plt.plot(ados)
+    plt.xlabel("Muts")
+    plt.ylabel("Error frequency")
+    plt.xticks(np.arange(len(fprs)),gene_names)
+
+    plt.savefig(os.path.join(outdir,"estimated_error_rates.png"))
+    return
+
+
+def _plot_chain_llhs(llhs,n_chains,outdir):
+    plt.figure(figsize=(4*n_chains,8))
+    chain_lens = int(len(llhs)/n_chains)
+    minmax = (np.min(llhs), np.max(llhs))
+    for i in range(n_chains):
+        plt.subplot(1,n_chains,i+1)
+        plt.plot(llhs[i*chain_lens:(i+1)*chain_lens])
+        plt.ylim(minmax)
+        plt.title("Chain {}".format(str(i)))
+    
+    plt.savefig(os.path.join(outdir,"chain_llhs.png"))
+    return
+
+
+def main():
+
+    args = _parse_args()
+    if not os.path.isdir(args.outdir):
+        os.makedirs(args.outdir)
+
+    res = Results(args.results_fn)
+
+    scp_args = res.get('scp_args')
+    data = res.get('data')
+    gene_names = res.get('gene_names')
+    est_FPRs = res.get("est_FPRs")
+    est_ADOs = res.get("est_ADOs")
+    pairs_tensor = res.get("pairs_tensor")
+    adjs = res.get("adj_mats")
+    llhs = res.get("tree_llhs")
+    accept_rates = res.get("accept_rates")
+    post_struct = res.get('struct')
+    post_count = res.get('count')
+    post_llh = res.get('llh')
+    post_prob = res.get('prob')
+
+    best_tree_ind = np.argmax(llhs)
+    best_tree_adj = adjs[best_tree_ind]
+
+
+    plot_best_model(pairs_tensor, outdir=args.outdir, snv_ids=gene_names, save_name="pairs_matrix.png")
+    _plot_err_est(est_FPRs,est_ADOs,gene_names,args.outdir)
+    _plot_chain_llhs(llhs,scp_args['tree_chains'],args.outdir)
+    fig = plot_tree(best_tree_adj, node_ids=gene_names)
+    fig.savefig(os.path.join(args.outdir,"Highest llh tree"))
+
+    return
+
+
+if __name__ == "__main__":
+    main()

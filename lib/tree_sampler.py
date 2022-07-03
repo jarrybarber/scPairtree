@@ -1,5 +1,5 @@
 import numpy as np
-from numba import njit
+from numba import njit, objmode
 import math
 from scipy.special import logsumexp
 import time
@@ -8,7 +8,8 @@ from progressbar import progressbar
 import hyperparams as hparams
 import util
 import common
-from common import Models, NUM_MODELS
+from common import Models, DataRange, DataRangeIdx
+from pairs_tensor_util import p_data_given_truth_and_errors
 
 from collections import namedtuple
 TreeSample = namedtuple('TreeSample', (
@@ -17,53 +18,46 @@ TreeSample = namedtuple('TreeSample', (
   'llh'
 ))
 
+@njit
+def _this_logsumexp_axis0(V):
+    #Jeez. It's messy but should work
+    #Written so that it works with numba. More restrictive than numpy implementation since it only works along axis 0
+    out = np.zeros(V.shape[1])
+    for i in range(V.shape[1]):
+        B = np.max(V[:,i])
+        summed = np.sum(np.exp(V[:,i] - B))
+        out[i] = B + np.log(summed)
+    return out
 
 # @njit
-def _calc_tree_llh(data, anc, alpha, beta):
-    #This will have to be made by me. Jeff uses a function called "_calc_llh_phi" which
-    #estimates the llh given the tree by making use of an MLE of the phis.
-    #
-    #I have my own method which is more exact and should (hopefully) be just as fast.
-    #Let's get started:
-
+def _calc_tree_llh(data, anc, FPR, ADO, dtype=DataRangeIdx.ref_var_nodata):
     #First, I need to calculate the number of true positives/negatives, and false positives/negatives for
     #the case of each cell being assigned to each node.
-    s = time.time()
     #Note: matrix multiplication is optimized when the elements are floats, but not if they are integers.
     # --> Swap to using floats for these calcs.
-    anc_comp = anc[1:,1:].astype(float)
-    not_anc_comp = np.logical_not(anc_comp).astype(float)
-    D_comp = (data == 1).astype(float)
-    not_D_comp = (data == 0).astype(float)
-    e = time.time()
-    # print("Making comp mats",e-s)
-    # True Positives:
-    s = time.time()
-    n_TP = anc_comp.T @ D_comp
-    e = time.time()
-    # print("Calcing n_TP:",e-s)
-    # False Negatives:
-    s = time.time()
-    n_FN = anc_comp.T @ not_D_comp
-    e = time.time()
-    # print("Calcing n_FN:",e-s)
-    # True Negatives:
-    s = time.time()
-    n_TN = not_anc_comp.T @ not_D_comp
-    e = time.time()
-    # print("Calcing n_TN:",e-s)
-    # False Positives:
-    s = time.time()
-    n_FP = not_anc_comp.T @ D_comp
-    e = time.time()
-    # print("Calcing n_FP:",e-s)
-
-    #Second, I can pass that through my equation for tree LLH to get the final result.
-    s = time.time()
-    cell_at_mut_contribution = n_FP*np.log(alpha) + n_FN*np.log(beta) + n_TN*np.log(1-alpha) + n_TP*np.log(1-beta)
+    
+    d_set = DataRange[dtype]
+    # if dtype == 0: #For numba
+    #     d_set = [0,1]
+    # elif dtype == 1:
+    #     d_set = [0,1,3]
+    # elif dtype == 2:
+    #     d_set = [0,1,2,3]
+    n_mut, n_cell = data.shape
+    assert len(FPR) == n_mut
+    assert len(ADO) == n_mut
+    
+    cell_at_mut_contribution = np.zeros((n_mut,n_cell))
+    for t in [0,1]:
+        anc_comp = (anc[1:,1:]==t) + 0.0
+        for d in d_set:
+            D_comp = (data == d) + 0.0
+            
+            p_dgte = np.array([p_data_given_truth_and_errors(d,t,FPR[i],ADO[i],dtype) for i in range(n_mut)]).reshape((-1,1)) @ np.ones((1,n_cell)) #Probability of datapoint given hidden truth and error rates P(d|t,Theta)
+            n_dgt  = anc_comp.T @ D_comp #Determines for each cell, the number of datapoints within it called d with given truth t, with t determined by a cell being assigned to each node in the given tree.
+            cell_at_mut_contribution += n_dgt*np.log(p_dgte)
+    # tree_llh = np.sum(_this_logsumexp_axis0(cell_at_mut_contribution)) #for numba. NOTE: Made no difference / was slightly slower...
     tree_llh = np.sum(logsumexp(cell_at_mut_contribution,axis=0))
-    e = time.time()
-    # print("The rest:",e-s)
     return tree_llh
 
 
@@ -112,17 +106,19 @@ def _calc_tree_logmutrel(adj, pairs_tensor):
     assert pairs_tensor.shape == (K-1, K-1, 5) #JB Note: I changed last input to 5... assuming that 5 models will be used
 
     # First row and column of `tree_logmutrel` will always be zero.
-    tree_logmutrel = np.zeros((K,K))
-    rng = range(K-1)
-    for J in rng:
-        for K in rng:
-            JK_clustrel = node_rels[J+1,K+1]
-            tree_logmutrel[J+1,K+1] = pairs_tensor[J,K,JK_clustrel]
+    # tree_logmutrel = np.zeros((K,K))
+    # rng = range(K-1)
+    # for J in rng:
+    #     for K in rng:
+    #         JK_clustrel = node_rels[J+1,K+1]
+    #         tree_logmutrel[J+1,K+1] = pairs_tensor[J,K,JK_clustrel]
+    tree_logmutrel = np.array([[pairs_tensor[J-1,K-1,node_rels[J,K]] if K!=0 and J!=0 else 0 for K in range(K)] for J in range(K)])
 
     assert np.array_equal(tree_logmutrel, tree_logmutrel.T)
     assert np.all(tree_logmutrel <= 0)
     return tree_logmutrel
 
+@njit
 def _scaled_softmax(A, R=100):
     #NOTE: This code was copied from Jeff's tree_sampler.py
     #Also, I feel like this should be in util or something
@@ -138,7 +134,7 @@ def _scaled_softmax(A, R=100):
     if np.sum(noninf) == 0:
         return util.softmax(A)
     delta = np.max(A[noninf]) - np.min(A[noninf])
-    if np.isclose(0, delta):
+    if util.isclose(0, delta):
         return util.softmax(A)
     B = min(1, np.log(R) / delta)
     return util.softmax(B*A)
@@ -246,7 +242,7 @@ def _make_W_nodes_uniform(adj, anc):
     weights /= np.sum(weights)
     return weights
 
-
+@njit
 def _make_W_dests_mutrel(subtree_head, curr_parent, adj, anc, pairs_tensor):
     #NOTE: This code was copied from Jeff's tree_sampler.py
     assert subtree_head > 0
@@ -254,20 +250,40 @@ def _make_W_dests_mutrel(subtree_head, curr_parent, adj, anc, pairs_tensor):
     cluster_idx = subtree_head - 1
     K = len(adj)
 
+    # tree_mod_times = []
+    # tree_logmutrel_times = []
+    # sum_triu_times = []
+    # t_s = time.time()
     logweights = np.full(K, -np.inf)
     for dest in range(K):
         if dest == curr_parent:
             continue
         if dest == subtree_head:
             continue
+        # s = time.time()
         new_adj = _modify_tree(adj, anc, dest, subtree_head)
+        # e = time.time()
+        # tree_mod_times.append(e-s)
+        # s = time.time()
         tree_logmutrel = _calc_tree_logmutrel(new_adj, pairs_tensor)
+        # e = time.time()
+        # tree_logmutrel_times.append(e-s)
+        # s = time.time()
         logweights[dest] = np.sum(np.triu(tree_logmutrel))
+        # e = time.time()
+        # sum_triu_times.append(e-s)
+    # t_e = time.time()
+    # print("\t\t\t\tTime modify tree many times:", np.sum(tree_mod_times)) #not really an issue at the moment
+    # print("\t\t\t\tTime calc tree_logmutrel many times:", np.sum(tree_logmutrel_times)) #Takes a surprisingly long time. Probably about half the time of each tree sample
+    # print("\t\t\t\tTime calc sum(triu()) many times:", np.sum(sum_triu_times)) #Also suprisingly long time. About quarter of overall time.
+    # print("\t\t\tTime for calc logweights:", t_e-t_s) #Again, this is main sore spot
     assert not np.any(np.isnan(logweights))
     valid_logweights = np.delete(logweights, (curr_parent, subtree_head))
     assert not np.any(np.isinf(valid_logweights))
-
+    # s = time.time()
     weights = _scaled_softmax(logweights)
+    # e = time.time()
+    # print("\t\t\tTime for softmax calc:", e-s)
     # Since we end up taking logs, this can't be exactly zero. If the logweight
     # is extremely negative, then this would otherwise be exactly zero.
     weights += common._EPSILON
@@ -298,9 +314,9 @@ def _make_W_dests_combined(subtree_head, adj, anc, pairs_tensor):
     curr_parent = _find_parent(subtree_head, adj)
     W_dests_uniform = _make_W_dests_uniform(subtree_head, curr_parent, adj, anc)
     # s = time.time()
-    W_dests_mutrel = _make_W_dests_mutrel(subtree_head, curr_parent, adj, anc, pairs_tensor)
+    W_dests_mutrel = _make_W_dests_mutrel(subtree_head, curr_parent, adj, anc, pairs_tensor) #Here is the main sore spot (for slowness)
     # e = time.time()
-    # print("Time to select dest (mutrel):", e-s)
+    # print("\t\tTime to select dest (mutrel):", e-s)
     return np.vstack((W_dests_uniform, W_dests_mutrel))
 
 
@@ -364,7 +380,7 @@ def _modify_tree(adj, anc, A, B):
     return adj
 
 
-def _generate_new_sample(old_samp, data, pairs_tensor, alpha, beta):
+def _generate_new_sample(old_samp, data, pairs_tensor, FPR, ADO, d_rng_id):
     #NOTE: This code was copied from Jeff's tree_sampler.py
     #I removed last two inputs for calculating the phis.
 
@@ -384,41 +400,41 @@ def _generate_new_sample(old_samp, data, pairs_tensor, alpha, beta):
     mode_dest = _sample_cat(mode_dest_weights)
 
     #Calc the weights of choosing the node to move using the old tree.
-    s = time.time()
+    # s = time.time()
     W_nodes_old = _make_W_nodes_combined(old_samp.adj, old_samp.anc, pairs_tensor)
-    e = time.time()
-    # print("Getting node weights for one to move:", e-s)
+    # e = time.time()
+    # print("\tGetting node weights for one to move:", e-s)
     #Choose a node to move.
     B = _sample_cat(W_nodes_old[mode_node])
     #Calc the weights of choosing the destination for the node to move to.
-    s = time.time()
+    # s = time.time()
     W_dests_old = _make_W_dests_combined(
         B,
         old_samp.adj,
         old_samp.anc,
         pairs_tensor,
     )
-    e = time.time()
-    # print("Getting node weights for where to move:", e-s)
+    # e = time.time()
+    # print("\tGetting node weights for where to move:", e-s)
 
     #Choose a destination for the node to move to.
     A = _sample_cat(W_dests_old[mode_dest])
     #A = _find_parent(B, common._true_adjm)
     #Make the move and update the tree llh
-    s = time.time()
+    # s = time.time()
     new_adj = _modify_tree(old_samp.adj, old_samp.anc, A, B)
-    e = time.time()
-    # print("Modifying tree once:", e-s)
+    # e = time.time()
+    # print("\tModifying tree once:", e-s)
 
     new_anc = make_ancestral_from_adj(new_adj)
-    s = time.time()
+    # s = time.time()
     new_samp = TreeSample(
         adj = new_adj,
         anc = new_anc,
-        llh = _calc_tree_llh(data, new_anc, alpha, beta)
+        llh = _calc_tree_llh(data, new_anc, FPR, ADO, d_rng_id)
     )
-    e = time.time()
-    # print("Calcing tree llh:", e-s)
+    # e = time.time()
+    # print("\tCalculating tree llh:", e-s)
 
 
     # `A_prime` and `B_prime` correspond to the node choices needed to reverse
@@ -435,13 +451,19 @@ def _generate_new_sample(old_samp, data, pairs_tensor, alpha, beta):
         A_prime = _find_parent(B, old_samp.adj)
         B_prime = B
     #Under the new tree, need to recalculate the weights of moving nodes so can calc p of moving back to old tree.
+    # s = time.time()
     W_nodes_new = _make_W_nodes_combined(new_samp.adj, new_samp.anc, pairs_tensor)
+    # e = time.time()
+    # print("\tFinal Getting node weights for one to move:", e-s)
+    # s=time.time()
     W_dests_new = _make_W_dests_combined(
         B_prime,
         new_samp.adj,
         new_samp.anc,
         pairs_tensor,
     )
+    # e=time.time()
+    # print("\tFinal Getting node weights for where to move:", e-s)
 
     # JB: block out (for now)
     # if common.debug.DEBUG:
@@ -473,7 +495,7 @@ def _generate_new_sample(old_samp, data, pairs_tensor, alpha, beta):
     return (new_samp, log_p_new_given_old, log_p_old_given_new)
 
 
-def _init_chain(seed, data, pairs_tensor, alpha, beta):
+def _init_chain(seed, data, pairs_tensor, FPR, ADO, d_rng_id):
     #NOTE: This code was copied from Jeff's tree_sampler.py
 
     # Ensure each chain gets a new random state. I add chain index to initial
@@ -497,7 +519,7 @@ def _init_chain(seed, data, pairs_tensor, alpha, beta):
 
     init_anc = make_ancestral_from_adj(init_adj)
 
-    init_llh = _calc_tree_llh(data, init_anc, alpha, beta)
+    init_llh = _calc_tree_llh(data, init_anc, FPR, ADO, d_rng_id)
 
     init_samp = TreeSample(
         adj = init_adj,
@@ -508,13 +530,13 @@ def _init_chain(seed, data, pairs_tensor, alpha, beta):
 
 
 
-def _run_chain(data, pairs_tensor, alpha, beta, nsamples, thinned_frac, seed, progress_queue=None):
+def _run_chain(data, pairs_tensor, FPR, ADO, nsamples, thinned_frac, seed, d_rng_id, progress_queue=None):
     #Note: Taken from Jeff's tree_sampler.
     #I am going to strip out a bunch of stuff I don't need (yet).
 
     assert nsamples > 0
 
-    samps = [_init_chain(seed, data, pairs_tensor, alpha, beta)]
+    samps = [_init_chain(seed, data, pairs_tensor, FPR, ADO, d_rng_id)]
     accepted = 0
     if progress_queue is not None:
         progress_queue.put(0)
@@ -540,13 +562,17 @@ def _run_chain(data, pairs_tensor, alpha, beta, nsamples, thinned_frac, seed, pr
     for I in range(1, nsamples):
         if progress_queue is not None:
             progress_queue.put(I)
+        # s = time.time()
         new_samp, log_p_new_given_old, log_p_old_given_new = _generate_new_sample(
             old_samp,
             data,
             pairs_tensor,
-            alpha,
-            beta
+            FPR,
+            ADO,
+            d_rng_id
         )
+        # e = time.time()
+        # print("t(_generate_new_sample):",e-s)
         log_p_transition = (new_samp.llh - old_samp.llh) + (log_p_old_given_new - log_p_new_given_old)
         U = np.random.uniform()
         accept = log_p_transition >= np.log(U)
@@ -575,7 +601,7 @@ def _run_chain(data, pairs_tensor, alpha, beta, nsamples, thinned_frac, seed, pr
     )
 
 
-def sample_trees(sc_data, pairs_tensor, FPR, FNR, trees_per_chain, burnin, nchains, thinned_frac, seed, parallel):
+def sample_trees(sc_data, pairs_tensor, FPR, ADO, trees_per_chain, burnin, nchains, thinned_frac, seed, parallel, d_rng_id):
 
     assert nchains > 0
     assert trees_per_chain > 0
@@ -604,11 +630,11 @@ def sample_trees(sc_data, pairs_tensor, FPR, FNR, trees_per_chain, burnin, nchai
         progress_queue = manager.Queue()
 
         with progressbar(total=total, desc='Sampling trees', unit='tree', dynamic_ncols=True) as pbar:
-            with concurrent.futures.ProcessPoolExecutor(max_workers=parallel) as ex:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=parallel,mp_context=multiprocessing.get_context("spawn")) as ex:
                 for C in range(nchains):
                     # Ensure each chain's random seed is different from the seed used to
                     # seed the initial Pairtree invocation, yet nonetheless reproducible.
-                    jobs.append(ex.submit(_run_chain, sc_data, pairs_tensor, FPR, FNR, trees_per_chain, thinned_frac, seed + C + 1, progress_queue))
+                    jobs.append(ex.submit(_run_chain, sc_data, pairs_tensor, FPR, ADO, trees_per_chain, thinned_frac, seed + C + 1, d_rng_id, progress_queue))
 
                 while True:
                     finished = 0
@@ -663,7 +689,7 @@ def sample_trees(sc_data, pairs_tensor, FPR, FNR, trees_per_chain, burnin, nchai
     else:
         results = []
         for C in range(nchains):
-            results.append(_run_chain(sc_data, pairs_tensor, FPR, FNR, trees_per_chain, thinned_frac, seed + C + 1))
+            results.append(_run_chain(sc_data, pairs_tensor, FPR, ADO, trees_per_chain, thinned_frac, seed + C + 1, d_rng_id))
 
     merged_adj = []
     merged_llh = []
@@ -676,3 +702,36 @@ def sample_trees(sc_data, pairs_tensor, FPR, FNR, trees_per_chain, burnin, nchai
         accept_rates.append(accept_rate)
     assert len(merged_adj) == len(merged_llh)
     return (merged_adj, merged_llh, accept_rates)
+
+
+def compute_posterior(adjms, llhs, sort_by_llh=True):
+    #NOTE: modified by Jarry, March 2022
+    unique = {}
+
+    for A, L in zip(adjms, llhs):
+        parents = util.convert_adjmatrix_to_parents(A)
+        H = hash(parents.tobytes())
+        if H in unique:
+            assert np.isclose(L, unique[H]['llh'])
+            assert np.array_equal(parents, unique[H]['struct'])
+            unique[H]['count'] += 1
+        else:
+            unique[H] = {
+                'struct': parents,
+                'llh': L,
+                'count': 1,
+            }
+
+    if sort_by_llh:
+        unique = sorted(unique.values(), key = lambda T: -(np.log(T['count']) + T['llh']))
+    else:
+        unique = list(unique.values())
+    unzipped = {key: np.array([U[key] for U in unique]) for key in unique[0].keys()}
+    unzipped['prob'] = util.softmax(np.log(unzipped['count']) + unzipped['llh'])
+
+    return (
+        unzipped['struct'],
+        unzipped['count'],
+        unzipped['llh'],
+        unzipped['prob'],
+    )

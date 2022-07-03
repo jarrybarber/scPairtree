@@ -43,19 +43,29 @@ def plot_raw_scores(tensor, show_fig=False, save_fig=True, outdir="", save_name 
     return
 
 
-def plot_best_model(tensor, show_fig=False, save_fig=True, outdir="", snv_ids=None, save_name="best_models.png"):
+def plot_best_model(tensor, show_fig=False, save_fig=True, outdir="", snv_ids=None, save_name="best_models.png", title=None):
+
+    if not title:
+        title = "Pairs Matrix"
 
     best_models = np.argmax(tensor,axis=2)+1
-    best_models = best_models - np.tril(best_models,k=-1)
+    best_models = best_models - np.tril(best_models,k=0)
 
     plt.figure(figsize=(16,10))
+    ax = plt.axes()
     cMap = ListedColormap(['black', '#984ea3', '#377eb8', '#4daf4a', '#e41a1c', '#ff7f00'])
     plt.imshow(best_models, vmin=-0.5, vmax=5.5, cmap=cMap)
-    plt.title("Ancestry Matrix",fontsize=20)
+    plt.title(title, fontsize=20)
     if snv_ids is not None:
-        plt.xticks(ticks=(np.linspace(0,len(snv_ids)-1,len(snv_ids))+0.5),labels=snv_ids, fontsize=12, rotation=90)
-        plt.yticks(ticks=(np.linspace(0,len(snv_ids)-1,len(snv_ids))+0.5),labels=snv_ids, fontsize=12)
-        plt.grid(markevery=1)
+        n_snvs = len(snv_ids)
+        # plt.xticks(ticks=(np.linspace(0,n_snvs-1,n_snvs)+0.5),labels=snv_ids, fontsize=12, rotation=90)
+        # plt.yticks(ticks=(np.linspace(0,n_snvs-1,n_snvs)+0.5),labels=snv_ids, fontsize=12)
+        # plt.grid(markevery=1)
+        plt.xticks(ticks=(np.linspace(0,n_snvs-1,n_snvs)),labels=snv_ids, fontsize=12, rotation=90)
+        plt.yticks(ticks=(np.linspace(0,n_snvs-1,n_snvs)),labels=snv_ids, fontsize=12)
+        plt.hlines(y=np.arange(0.5,n_snvs-0.5,1),linestyles='dashed',colors='grey',xmin=-0.5,xmax=n_snvs-0.5)
+        plt.vlines(x=np.arange(0.5,n_snvs-0.5,1),linestyles='dashed',colors='grey',ymin=-0.5,ymax=n_snvs-0.5)
+        # plt.grid(markevery=1.5)
     cbar = plt.colorbar()
     cbar.ax.get_yaxis().set_ticks([0,1,2,3,4,5])
     cbar.ax.get_yaxis().set_ticklabels(['N/A','ISA Violation','Co-incident','Y->X','X->Y','Branching'],fontsize=20)

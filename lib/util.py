@@ -4,7 +4,7 @@ from numba import njit
 from scipy.special import loggamma, logsumexp
 from collections import namedtuple
 
-from common import Models
+from common import Models, DataRangeIdx, DataRange, _EPSILON
 
 #Note, this may work better as a pandas object so that any sorting of 
 #snvs and cells automatically works when sorting data matrix.
@@ -13,7 +13,7 @@ _Data = namedtuple('_Data', (
   'n_snvs',
   'n_cells',
   'snv_ids',
-  #'cell_ids' #Note implemented yet
+  #'cell_ids' #Not implemented yet
 ))
 
 #Should work as long as util.py is in the bin folder
@@ -22,6 +22,22 @@ BASE_DIR = os.path.dirname(LIB_DIR)
 DATA_DIR = os.path.join(BASE_DIR,"data")
 OUT_DIR  = os.path.join(BASE_DIR,"out")
 RUNS_DIR = os.path.join(BASE_DIR,"runs")
+
+
+def load_data(fn, data_dir=None):
+    #Loads a data file without column or row labels.
+    #If there is a .mutnames, then will load that and set as mutation names
+    
+    if data_dir is not None:
+        fn = os.path.join(data_dir,fn) 
+    data = np.loadtxt(fn)
+
+    if os.path.isfile(fn + ".mutnames"):
+        mut_names = np.loadtxt(fn + ".mutnames",dtype=str)
+    else:
+        mut_names = np.arange(data.shape[0])
+
+    return data, mut_names
 
 
 def load_sim_data(fn):
@@ -37,27 +53,63 @@ def load_sim_data(fn):
             count += 1
     return _Data(data=np.array(data),n_snvs=len(data),n_cells=len(data[0]),snv_ids=snv_ids)
 
+def determine_all_pairwise_occurance_counts(data, d_rng_i):
+    dat_vals = DataRange[d_rng_i]
+    pairwise_occurances = np.swapaxes(np.array([[determine_pairwise_occurance_counts(data, [i,j]) for i in dat_vals] for j in dat_vals]),0,1)
 
-def determine_pairwise_occurance_counts(data):
-    # This will take data of the form nSSMs x nCells and determine the counts of
-    # each pairwise occurance. I.e., how many times a [1 1], [1 0], [0 1], [0 0]
-    # occurs in the data for each SSM pair. Values other than 0 or 1 (eg, 3= no 
-    # call) will be omitted.
+    return pairwise_occurances, dat_vals
 
-    #First, need separate boolean matricies for each condition
-    has_ref = (data==0).astype(int) + 0.0 #Strange issue when matricies get large... takes forever when integers as well... switch to float for mat mult, then switch back
-    has_alt = (data==1).astype(int) + 0.0
+
+def determine_pairwise_occurance_counts(data,pair_val):
+    # This will take data of the form nMuts x nCells and a pair value and determine 
+    # the counts of the pair value across every possible pair. E.g., how many times 
+    # a [1 0] or a [0,3] occurs in the data for a mutation pair
+    assert len(pair_val)==2
+    assert pair_val[0] in (0,1,2,3)
+    assert pair_val[1] in (0,1,2,3)
+    #First, we need separate boolean matricies for each condition
+    has_1st = (data==pair_val[0]).astype(float) #Strange issue with int matricies where it takes forever to calculate. switch to float for mat mult, then switch back
+    has_2nd = (data==pair_val[1]).astype(float)
     #For every mutation pair, count the number of times both occur across all cells
-    n11 = has_alt @ np.transpose(has_alt)
-    #For every mutation pair, count the number of times neither occur across all cells
-    n00 = has_ref @ np.transpose(has_ref)
-    #For every mutation pair, count the number of times only first occurs across all cells
-    n10 = has_alt @ np.transpose(has_ref)
-    #For every mutation pair, count the number of times only second occurs across all cells
-    n01 = has_ref @ np.transpose(has_alt)
+    count_mat = has_1st @ np.transpose(has_2nd)
 
-    return n11.astype(int),n10.astype(int),n01.astype(int),n00.astype(int)
+    return count_mat.astype(int)
 
+#Taken from Jeff's Pairtree
+@njit
+def convert_parents_to_adjmatrix(parents):
+  K = len(parents) + 1
+  adjm = np.eye(K)
+  adjm[parents,np.arange(1, K)] = 1
+  return adjm
+
+#Taken from Jeff's Pairtree
+@njit
+def convert_adjmatrix_to_parents(adj):
+  adj = np.copy(adj)
+  np.fill_diagonal(adj, 0)
+  parents = np.zeros(adj.shape[1]-1)
+  for i in range(1,adj.shape[1]):
+    parents[i-1] = find_first(1,adj[:,i])
+  return parents#np.argmax(adj[:,1:], axis=0)
+
+#Taken from Jeff's Pairtree
+@njit
+def compute_node_relations(adj, check_validity=False):
+  K = len(adj)
+  anc = make_ancestral_from_adj(adj, check_validity)
+  np.fill_diagonal(anc, 0)
+
+  R = np.full((K, K), Models.diff_branches, dtype=np.int8)
+  for idx in range(K):
+    R[idx][anc[idx]   == 1] = Models.A_B
+    R[idx][anc[:,idx] == 1] = Models.B_A
+  np.fill_diagonal(R, Models.cocluster)
+
+  if check_validity:
+    assert np.all(R[0]   == Models.A_B)
+    assert np.all(R[:,0] == Models.B_A)
+  return R
 
 def calc_tensor_prob(tensor):
     #Should be 3 axis: 1st for models, 2nd and 3rd for SNV comps
@@ -79,6 +131,19 @@ def softmax(V):
     smax /= np.sum(smax)
     #assert np.isclose(np.sum(smax), 1)
     return smax
+
+@njit
+def isclose(a,b,atol=1e-8,rtol=1e-5):
+    return np.abs(a-b)<(atol + rtol*np.abs(b))
+
+@njit
+def find_first(item, vec):
+    """return the index of the first occurence of item in vec"""
+    for i in range(len(vec)):
+        if item == vec[i]:
+            return i
+    return -1
+
 
 @njit
 def make_ancestral_from_adj(adj, check_validity=False):
@@ -158,26 +223,27 @@ def remove_rowcol(arr, indices):
     return arr
 
 # From Jeff <3 (Not used at the moment. Still using scipy for logsumexp and loggamma)
-# @njit
-# def logsumexp(V, axis=None):
-#     B = np.max(V)
-#     # Explicitly checking `axis` is necessary for Numba, which doesn't support
-#     # `axis=None` in calling `np.sum()`.
-#     if axis is None:
-#       # Avoid NaNs when inputs are all -inf.
-#       # Numba doesn't support `np.isneginf`, alas.
-#       if np.isinf(B) and B < 0:
-#         return B
-#       summed = np.sum(np.exp(V - B))
-#     else:
-#       # NB: this is suboptimal, since we should call `np.max(V, axis)`, but Numba
-#       # doesn't yet support the axis argument. So, we end up using the scalar
-#       # maximum across the entire array, not the vector maximum across the axis.
-#       #
-#       # NB part deux: if all the elements across one axis of the array are -inf,
-#       # this will break and return NaN, when it should instead return -inf. So
-#       # long as `np.max(..., axis)` isn't supported in Numba, this is non-trivial
-#       # to fix.
-#       summed = np.sum(np.exp(V - B), axis)
-#     log_sum = B + np.log(summed)
-#     return log_sum
+@njit
+def logsumexp(V, axis=None):
+    B = np.max(V)
+    # Explicitly checking `axis` is necessary for Numba, which doesn't support
+    # `axis=None` in calling `np.sum()`.
+    if axis is None:
+      # Avoid NaNs when inputs are all -inf.
+      # Numba doesn't support `np.isneginf`, alas.
+      if np.isinf(B) and B < 0:
+        return B
+      summed = np.sum(np.exp(V - B))
+    else:
+      # NB: this is suboptimal, since we should call `np.max(V, axis)`, but Numba
+      # doesn't yet support the axis argument. So, we end up using the scalar
+      # maximum across the entire array, not the vector maximum across the axis.
+      #
+      # NB part deux: if all the elements across one axis of the array are -inf,
+      # this will break and return NaN, when it should instead return -inf. So
+      # long as `np.max(..., axis)` isn't supported in Numba, this is non-trivial
+      # to fix.
+      summed = np.sum(np.exp(V - B), axis)
+      B = np.ones(summed.shape)
+    log_sum = B + np.log(summed)
+    return log_sum
