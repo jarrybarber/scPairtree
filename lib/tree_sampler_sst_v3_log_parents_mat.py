@@ -246,13 +246,14 @@ def _calc_parents_mat(pairs_tensor, edge_choices, node_assignments):
             for middle_child in list(set(poss_child)-set([get_head_node_from_node(parent,edge_choices), child])):
                 middle_tree = get_subtree_with_root(middle_child, edge_choices)
                 middle_leaves = get_nodes_from_tree(middle_tree)
-                log_p_middle_in_between = -np.inf
+                # log_p_middle_in_between = -np.inf
+                log_p_middle_in_between = 0
                 for leaf in middle_leaves:
                     log_p_t_parent_middle_leaf_child = log_prob_middle_between_two_nodes_given_pairs_tens(normed,parent,leaf,child,parent_tree,middle_tree,child_tree,node_assignments)
-                    log_p_middle_in_between = logsumexp(np.array([log_p_t_parent_middle_leaf_child, log_p_middle_in_between]))
+                    # log_p_middle_in_between = logsumexp(np.array([log_p_t_parent_middle_leaf_child, log_p_middle_in_between]))
+                    log_p_middle_in_between += log_p_t_parent_middle_leaf_child
                 log_p_nothing_else_between += np.log(1 - np.exp(log_p_middle_in_between))
             parents_mat[parent,child] = log_p_t_parent_child + log_p_nothing_else_between
-
     for j in range(1,n_node):
         parents_mat[:,j] = parents_mat[:,j] - (logsumexp(parents_mat[:,j]))# + np.exp(-700))   
 

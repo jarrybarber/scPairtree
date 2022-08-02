@@ -585,9 +585,9 @@ def _run_chain(data, pairs_tensor, FPR, ADO, nsamples, thinned_frac, seed, d_rng
 
         if I % record_every == 0:
             samps.append(samp)
-            old_samp = samp
         if accept:
             accepted += 1
+        old_samp = samp
 
     if nsamples > 1:
         accept_rate = accepted / (nsamples - 1)
@@ -630,7 +630,7 @@ def sample_trees(sc_data, pairs_tensor, FPR, ADO, trees_per_chain, burnin, nchai
         progress_queue = manager.Queue()
 
         with progressbar(total=total, desc='Sampling trees', unit='tree', dynamic_ncols=True) as pbar:
-            with concurrent.futures.ProcessPoolExecutor(max_workers=parallel,mp_context=multiprocessing.get_context("spawn")) as ex:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=parallel) as ex:
                 for C in range(nchains):
                     # Ensure each chain's random seed is different from the seed used to
                     # seed the initial Pairtree invocation, yet nonetheless reproducible.
