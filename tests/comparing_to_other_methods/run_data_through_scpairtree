@@ -12,25 +12,27 @@ function run_all_sims {
   cell_alpha=1
   mut_alpha=1
   d_rng_id=1
-  n_rep=4
+  n_rep=8
   thin_frac=0.2
-  seed=1000
+  burnin=0.5
 
-  for M in 10 20 50; do
-  for C in 100 500 1000; do
+  for M in 10 20 50 100; do
+  for C in 100 500 1000 ; do
+  for sim in 0 1 2 3 4 5 6 7 8 9 ; do
   for FPR in 0.001; do
   for ADO in 0.3; do
-  for run in 1; do
+    echo $M $C $sim
+    seed=`expr 1000 + $sim`
     fn=m${M}_c${C}_fp${FPR}_ad${ADO}_ca${cell_alpha}_ma${mut_alpha}_dr${d_rng_id}_seed${seed}
     data_fn=$SIMDIR/$fn.data
     out_fn=$RESDIR/$fn
 
-    n_samp=`expr 100 \* $M`
-    burnin=`expr 0.5 + $M/250`
-    tpc=`expr $n_samp / ($thin_frac\*(1-$burnin))`
-    \time -o $out_fn.time -f "Runtime: %E\n" python $BINDIR/sc_pairtree.py $data_fn $out_fn --seed $seed --data-range 1 --parallel $n_rep --trees-per-chain $tpc --burnin $burnin --thinned-frac $thin_frac > $out_fn.log
+    # burnin=`expr 0.5 + $M/250`
+    # n_samp=`expr 20 \* $M`
+    tpc=`expr $M \* 1000`
+    # bsub -n8 -R rusage[mem=8] -W 72:00 \time -o $out_fn.time -f "Runtime: %E\n" python $BINDIR/sc_pairtree.py $data_fn $out_fn --seed $seed --data-range 1 --parallel $n_rep --trees-per-chain $tpc --burnin $burnin --thinned-frac $thin_frac
     fig_fn=$RESDIR/figs/$fn/
-    python $BINDIR/make_supp_figures.py $out_fn --outdir $fig_fn --seed 1000 
+    python $BINDIR/make_supp_figures.py $out_fn --outdir $fig_fn --seed $seed
   done
   done
   done

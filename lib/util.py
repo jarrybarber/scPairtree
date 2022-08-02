@@ -35,7 +35,7 @@ def load_data(fn, data_dir=None):
     if os.path.isfile(fn + ".mutnames"):
         mut_names = np.loadtxt(fn + ".mutnames",dtype=str)
     else:
-        mut_names = np.arange(data.shape[0])
+        mut_names = np.arange(1,data.shape[0]+1)
 
     return data, mut_names
 
@@ -76,7 +76,7 @@ def determine_pairwise_occurance_counts(data,pair_val):
     return count_mat.astype(int)
 
 #Taken from Jeff's Pairtree
-@njit
+# @njit
 def convert_parents_to_adjmatrix(parents):
   K = len(parents) + 1
   adjm = np.eye(K)
