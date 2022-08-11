@@ -707,14 +707,21 @@ def sample_trees(sc_data, pairs_tensor, FPR, ADO, trees_per_chain, burnin, nchai
     merged_adj = []
     merged_llh = []
     accept_rates = []
-    for A, L, accept_rate in results:
-        assert len(A) == len(L) == len(results[0][0])
+    best_tree = TreeSample(
+        adj = None,
+        anc = None,
+        llh = -np.inf
+    )
+    for this_best_tree, A, L, accept_rate in results:
+        assert len(A) == len(L) == len(results[0][1])
         discard_first = round(burnin * len(A))
         merged_adj += A[discard_first:]
         merged_llh += L[discard_first:]
         accept_rates.append(accept_rate)
+        if this_best_tree.llh > best_tree.llh:
+            best_tree = this_best_tree
     assert len(merged_adj) == len(merged_llh)
-    return (merged_adj, merged_llh, accept_rates)
+    return (best_tree, merged_adj, merged_llh, accept_rates)
 
 
 def compute_posterior(adjms, llhs, sort_by_llh=True):
