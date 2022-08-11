@@ -28,11 +28,7 @@ function run_all_sims {
     #bsub -n4 -R rusage[mem=4] -W 2:00 python $BINDIR/sc_pairtree.py $data_fn --seed 1000 --data-range 1 --parallel 4 --trees-per-chain $C*$C*50 --burnin 0.5 --thinned-frac 0.5
     n_samp=`expr 100 \* $M`
     tpc=`expr $M \* 20000`
-<<<<<<< HEAD
-    \time -o $out_fn.time -f "Runtime: %E\n" ${BINDIR}/sasc -i $data_fn -n $C -m $M -k 0 -a 0.2 -b 5e-5 -d 0 > $out_fn.log
-=======
     \time -o $out_fn.time -f "Runtime: %E\n" ${BINDIR}/sasc -i $data_fn -n $C -m $M -k 0 -a 0.3 -b 1e-3 -d 0 -r $n_rep -p $n_rep > $out_fn.log
->>>>>>> 3ac7e404a78f16c95da4e0ff8bceadc58072e34c
   done
   done
   done

@@ -76,7 +76,7 @@ def determine_pairwise_occurance_counts(data,pair_val):
     return count_mat.astype(int)
 
 #Taken from Jeff's Pairtree
-# @njit
+@njit
 def convert_parents_to_adjmatrix(parents):
   K = len(parents) + 1
   adjm = np.eye(K)
@@ -93,23 +93,31 @@ def convert_adjmatrix_to_parents(adj):
     parents[i-1] = find_first(1,adj[:,i])
   return parents#np.argmax(adj[:,1:], axis=0)
 
-#Taken from Jeff's Pairtree
 @njit
 def compute_node_relations(adj, check_validity=False):
-  K = len(adj)
-  anc = make_ancestral_from_adj(adj, check_validity)
-  np.fill_diagonal(anc, 0)
+  #Note: adapted from Jeff's util code.
+    #May make sense to move somewhere else... Perhaps some tree or pairs tensor util.
+    K = len(adj)
+    anc = make_ancestral_from_adj(adj, check_validity)
+    # np.fill_diagonal(anc, 0)
+    for i in range(anc.shape[0]): #better for numba
+        anc[i,i] = 0
 
-  R = np.full((K, K), Models.diff_branches, dtype=np.int8)
-  for idx in range(K):
-    R[idx][anc[idx]   == 1] = Models.A_B
-    R[idx][anc[:,idx] == 1] = Models.B_A
-  np.fill_diagonal(R, Models.cocluster)
+    R = np.full((K, K), Models.diff_branches, dtype=np.int8)
+    for i in range(K):
+        for j in range(K):
+            if anc[i,j] == 1:
+                R[i,j] = Models.A_B
+            elif anc[j,i] == 1:
+                R[i,j] = Models.B_A
+    # np.fill_diagonal(R, Models.cocluster)
+    for i in range(K): #better for numba
+        R[i,i] = Models.cocluster
 
-  if check_validity:
-    assert np.all(R[0]   == Models.A_B)
-    assert np.all(R[:,0] == Models.B_A)
-  return R
+    if check_validity:
+        assert np.all(R[0]   == Models.A_B)
+        assert np.all(R[:,0] == Models.B_A)
+    return R
 
 def calc_tensor_prob(tensor):
     #Should be 3 axis: 1st for models, 2nd and 3rd for SNV comps
@@ -159,7 +167,10 @@ def make_ancestral_from_adj(adj, check_validity=False):
         assert np.array_equal(expected_sum, np.sum(adj, axis=0))
 
     Z = np.copy(adj)
-    np.fill_diagonal(Z, 0)
+    # np.fill_diagonal(Z, 0)
+    for i in range(Z.shape[0]):
+        Z[i,i] = 0
+        
     stack = [root]
     while len(stack) > 0:
         P = stack.pop()
@@ -172,11 +183,15 @@ def make_ancestral_from_adj(adj, check_validity=False):
         # Turn `C_anc` into column vector.
         Z[:,C] = np.expand_dims(C_anc, 1)
         stack += list(C)
-    np.fill_diagonal(Z, 1)
-
+    
+    # np.fill_diagonal(Z, 1)
+    for i in range(Z.shape[0]):
+        Z[i,i] = 1
+        
     if check_validity:
         assert np.array_equal(Z[root], np.ones(K))
     return Z
+
 
 @njit
 def compute_node_relations(adj, check_validity=False):
@@ -184,13 +199,22 @@ def compute_node_relations(adj, check_validity=False):
     #May make sense to move somewhere else... Perhaps some tree or pairs tensor util.
     K = len(adj)
     anc = make_ancestral_from_adj(adj, check_validity)
-    np.fill_diagonal(anc, 0)
+    # np.fill_diagonal(anc, 0)
+    for i in range(anc.shape[0]): #better for numba
+        anc[i,i] = 0
 
     R = np.full((K, K), Models.diff_branches, dtype=np.int8)
-    for idx in range(K):
-        R[idx][anc[idx]   == 1] = Models.A_B
-        R[idx][anc[:,idx] == 1] = Models.B_A
-    np.fill_diagonal(R, Models.cocluster)
+    for i in range(K):
+        for j in range(K):
+            if anc[i,j] == 1:
+                R[i,j] = Models.A_B
+            elif anc[j,i] == 1:
+                R[i,j] = Models.B_A
+            # R[i][anc[i]   == 1] = Models.A_B
+            # R[i][anc[:,i] == 1] = Models.B_A
+    # np.fill_diagonal(R, Models.cocluster)
+    for i in range(K): #better for numba
+        R[i,i] = Models.cocluster
 
     if check_validity:
         assert np.all(R[0]   == Models.A_B)

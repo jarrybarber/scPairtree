@@ -101,10 +101,12 @@ def make_reconstruction_comp_plots(n_muts,n_cells,seeds,methods):
                     fn = "m{}_c{}_fp{}_ad{}_ca{}_ma{}_dr{}_seed{}".format(n_mut,n_cell,FPR,ADO,cell_alpha,mut_alpha,d_rng_id,seed)
                     if method=="sc_pairtree":
                         res = Results(os.path.join(this_dir,fn))
-                        adjs = res.get("adj_mats")
-                        llhs = res.get("tree_llhs")
-                        ml_ind = np.argmax(llhs)
-                        ml_tree = adjs[ml_ind]
+                        # adjs = res.get("adj_mats")
+                        # llhs = res.get("tree_llhs")
+                        ml_tree = res.get("best_tree_adj")
+                        # best_llh = res.get("best_tree_llh")
+                        # ml_ind = np.argmax(llhs)
+                        # ml_tree = adjs[ml_ind]
                     elif method=="sasc":
                         fn = fn + ".log"
                         with open(os.path.join(this_dir,fn),'r') as f:

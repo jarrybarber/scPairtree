@@ -25,28 +25,29 @@ def _this_logsumexp_axis0(V):
     out = np.zeros(V.shape[1])
     for i in range(V.shape[1]):
         B = np.max(V[:,i])
-        summed = np.sum(np.exp(V[:,i] - B))
+        summed = 0
+        for j in range(V.shape[0]):
+            summed = summed + np.exp(V[j,i] - B)
         out[i] = B + np.log(summed)
     return out
 
-# @njit
+@njit
 def _calc_tree_llh(data, anc, FPR, ADO, dtype=DataRangeIdx.ref_var_nodata):
     #First, I need to calculate the number of true positives/negatives, and false positives/negatives for
     #the case of each cell being assigned to each node.
     #Note: matrix multiplication is optimized when the elements are floats, but not if they are integers.
     # --> Swap to using floats for these calcs.
     
-    d_set = DataRange[dtype]
-    # if dtype == 0: #For numba
-    #     d_set = [0,1]
-    # elif dtype == 1:
-    #     d_set = [0,1,3]
-    # elif dtype == 2:
-    #     d_set = [0,1,2,3]
+    # d_set = DataRange[dtype]
+    if dtype == 0: #For numba
+        d_set = [0,1]
+    elif dtype == 1:
+        d_set = [0,1,3]
+    elif dtype == 2:
+        d_set = [0,1,2,3]
     n_mut, n_cell = data.shape
     assert len(FPR) == n_mut
     assert len(ADO) == n_mut
-    
     cell_at_mut_contribution = np.zeros((n_mut,n_cell))
     for t in [0,1]:
         anc_comp = (anc[1:,1:]==t) + 0.0
@@ -56,16 +57,14 @@ def _calc_tree_llh(data, anc, FPR, ADO, dtype=DataRangeIdx.ref_var_nodata):
             p_dgte = np.array([p_data_given_truth_and_errors(d,t,FPR[i],ADO[i],dtype) for i in range(n_mut)]).reshape((-1,1)) @ np.ones((1,n_cell)) #Probability of datapoint given hidden truth and error rates P(d|t,Theta)
             n_dgt  = anc_comp.T @ D_comp #Determines for each cell, the number of datapoints within it called d with given truth t, with t determined by a cell being assigned to each node in the given tree.
             cell_at_mut_contribution += n_dgt*np.log(p_dgte)
-    # tree_llh = np.sum(_this_logsumexp_axis0(cell_at_mut_contribution)) #for numba. NOTE: Made no difference / was slightly slower...
-    tree_llh = np.sum(logsumexp(cell_at_mut_contribution,axis=0))
+    tree_llh = np.sum(_this_logsumexp_axis0(cell_at_mut_contribution)) #for numba. NOTE: Made no difference / was slightly slower...
+    # tree_llh = np.sum(logsumexp(cell_at_mut_contribution,axis=0))
     return tree_llh
 
 
 @njit
 def make_ancestral_from_adj(adj, check_validity=False):
-    #NOTE: This code was copied from Jeff's util function.
-    # --> Move to it's own util function!!
-
+    #Note: taken from Jeff's util code.
     K = len(adj)
     root = 0
 
@@ -77,7 +76,10 @@ def make_ancestral_from_adj(adj, check_validity=False):
         assert np.array_equal(expected_sum, np.sum(adj, axis=0))
 
     Z = np.copy(adj)
-    np.fill_diagonal(Z, 0)
+    # np.fill_diagonal(Z, 0)
+    for i in range(Z.shape[0]):
+        Z[i,i] = 0
+        
     stack = [root]
     while len(stack) > 0:
         P = stack.pop()
@@ -90,32 +92,36 @@ def make_ancestral_from_adj(adj, check_validity=False):
         # Turn `C_anc` into column vector.
         Z[:,C] = np.expand_dims(C_anc, 1)
         stack += list(C)
-    np.fill_diagonal(Z, 1)
-
+    
+    # np.fill_diagonal(Z, 1)
+    for i in range(Z.shape[0]):
+        Z[i,i] = 1
+        
     if check_validity:
         assert np.array_equal(Z[root], np.ones(K))
     return Z
 
 
 @njit
-def _calc_tree_logmutrel(adj, pairs_tensor):
+def _calc_tree_logmutrel(adj, pairs_tensor, check_validity=False):
     #NOTE: This code was copied from Jeff's tree_sampler.py
-    node_rels = util.compute_node_relations(adj)
+    node_rels = util.compute_node_relations(adj, check_validity)
     K = len(node_rels)
-    assert node_rels.shape == (K, K)
-    assert pairs_tensor.shape == (K-1, K-1, 5) #JB Note: I changed last input to 5... assuming that 5 models will be used
+    if check_validity:
+        assert node_rels.shape == (K, K)
+        assert pairs_tensor.shape == (K-1, K-1, 5) #JB Note: I changed last input to 5... assuming that 5 models will be used
 
     # First row and column of `tree_logmutrel` will always be zero.
-    # tree_logmutrel = np.zeros((K,K))
-    # rng = range(K-1)
-    # for J in rng:
-    #     for K in rng:
-    #         JK_clustrel = node_rels[J+1,K+1]
-    #         tree_logmutrel[J+1,K+1] = pairs_tensor[J,K,JK_clustrel]
-    tree_logmutrel = np.array([[pairs_tensor[J-1,K-1,node_rels[J,K]] if K!=0 and J!=0 else 0 for K in range(K)] for J in range(K)])
-
-    assert np.array_equal(tree_logmutrel, tree_logmutrel.T)
-    assert np.all(tree_logmutrel <= 0)
+    tree_logmutrel = np.zeros((K,K))
+    rng = range(K-1)
+    for J in rng:
+        for K in rng:
+            JK_clustrel = node_rels[J+1,K+1]
+            tree_logmutrel[J+1,K+1] = pairs_tensor[J,K,JK_clustrel]
+    
+    if check_validity:
+        assert np.array_equal(tree_logmutrel, tree_logmutrel.T)
+        assert np.all(tree_logmutrel <= 0)
     return tree_logmutrel
 
 @njit
@@ -536,6 +542,8 @@ def _run_chain(data, pairs_tensor, FPR, ADO, nsamples, thinned_frac, seed, d_rng
 
     assert nsamples > 0
 
+    # pairs_tensor = np.log(pairs_tensor)
+
     samps = [_init_chain(seed, data, pairs_tensor, FPR, ADO, d_rng_id)]
     accepted = 0
     if progress_queue is not None:
@@ -559,6 +567,7 @@ def _run_chain(data, pairs_tensor, FPR, ADO, nsamples, thinned_frac, seed, d_rng
     expected_total_trees = 1 + math.floor((nsamples - 1) / record_every)
 
     old_samp = samps[0]
+    best_samp = samps[0]
     for I in range(1, nsamples):
         if progress_queue is not None:
             progress_queue.put(I)
@@ -580,6 +589,9 @@ def _run_chain(data, pairs_tensor, FPR, ADO, nsamples, thinned_frac, seed, d_rng
             samp = new_samp
         else:
             samp = old_samp
+        
+        if new_samp.llh > best_samp.llh:
+            best_samp = new_samp
 
         #NOTE: JB removed a print_debug section.
 
@@ -595,6 +607,7 @@ def _run_chain(data, pairs_tensor, FPR, ADO, nsamples, thinned_frac, seed, d_rng
         accept_rate = 1.
     assert len(samps) == expected_total_trees
     return (
+        best_samp,
         [S.adj   for S in samps],
         [S.llh   for S in samps],
         accept_rate,

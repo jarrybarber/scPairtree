@@ -4,6 +4,7 @@ from multiprocessing import Pool, get_context
 from scipy.integrate import quad, dblquad
 from scipy.optimize import minimize
 from scipy.special import logsumexp
+from numba import njit
 
 from common import Models, NUM_MODELS
 from util import determine_all_pairwise_occurance_counts
@@ -149,3 +150,18 @@ def complete_tensor(scores):
     new_t[range(nSNVs),range(nSNVs),Models.garbage] = -np.inf
     return new_t
 
+
+@njit
+def normalize_and_unlog_pairs_tensor(pairs_tensor, ignore_coclust = False):
+    assert np.all(pairs_tensor<=0) #I.e., is in log space
+
+    n_mut = len(pairs_tensor)
+    normed = np.copy(pairs_tensor)
+    if ignore_coclust:
+        normed[:,:,Models.cocluster] = -np.inf
+    for i in range(n_mut):
+        for j in range(n_mut):
+            B = np.max(normed[i,j,:])
+            normed[i,j,:] = normed[i,j,:] - B
+            normed[i,j,:] = np.exp(normed[i,j,:]) / np.sum(np.exp(normed[i,j,:]))
+    return normed

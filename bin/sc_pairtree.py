@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
 import hyperparams
 from util import load_data
 from error_rate_estimator import estimate_error_rates
-from pairs_tensor_constructor import construct_pairs_tensor, complete_tensor
+from pairs_tensor_constructor import construct_pairs_tensor, complete_tensor, normalize_and_unlog_pairs_tensor
 from tree_sampler import sample_trees, compute_posterior
 from tree_plotter import plot_tree
 from pairs_tensor_plotter import plot_best_model
@@ -183,6 +183,7 @@ def main():
         print("Constructing pairs tensor...")
         s = time.time()
         pairs_tensor = construct_pairs_tensor(data, est_FPRs, est_ADOs, d_rng_i=args.d_rng_i, scale_integrand=True)
+        pairs_tensor = normalize_and_unlog_pairs_tensor(pairs_tensor)
         pairs_tensor = complete_tensor(pairs_tensor)
         res.add("pairs_tensor_runtime", time.time()-s)
         res.add("pairs_tensor", pairs_tensor)
@@ -196,7 +197,7 @@ def main():
     else:
         print("Sampling trees...")
         s = time.time()
-        adjs, llhs, accept_rates = sample_trees(data, pairs_tensor, FPR=est_FPRs, ADO=est_ADOs, 
+        best_tree, adjs, llhs, accept_rates = sample_trees(data, pairs_tensor, FPR=est_FPRs, ADO=est_ADOs, 
             trees_per_chain=args.trees_per_chain, 
             burnin=args.burnin, 
             nchains=args.tree_chains, 
@@ -208,6 +209,8 @@ def main():
         res.add("adj_mats", np.array(adjs))
         res.add("tree_llhs", np.array(llhs))
         res.add("accept_rates", np.array(accept_rates))
+        res.add("best_tree_adj", np.array(best_tree.adj))
+        res.add("best_tree_llh", np.array(best_tree.llh))
         res.save()
 
     

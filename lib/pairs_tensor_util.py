@@ -47,7 +47,7 @@ def _p_model_given_phi(model, phi_a, phi_b): #P(M|Phi) - Used in error rate esti
             if phi_a + phi_b <= 1:
                 return 0.5
             else:
-                return 1
+                return 1.0
         else:
             return 0.0
     elif model == Models.B_A:
@@ -55,7 +55,7 @@ def _p_model_given_phi(model, phi_a, phi_b): #P(M|Phi) - Used in error rate esti
             if phi_a + phi_b <= 1:
                 return 0.5
             else:
-                return 1
+                return 1.0
         else:
             return 0.0
     elif model == Models.diff_branches:
@@ -63,7 +63,9 @@ def _p_model_given_phi(model, phi_a, phi_b): #P(M|Phi) - Used in error rate esti
             return 0.5
         else:
             return 0.0
-    elif (model == Models.garbage) | model == Models.cocluster:
+    elif model == Models.garbage:
+        return 1.0
+    elif model == Models.cocluster:
         raise Exception("p(M|Phi) only accepts branched, ancestral and descendent relationships as input.\n\n I am currently only using this to estimate error rates and so only these models should be used. If something changes then make something else...")
     
     return 0.0 #necessary for numba to not get confused
