@@ -49,6 +49,12 @@ def _parse_args():
         help='Proportion of samples to discard from beginning of each chain.')
     parser.add_argument('--thinned-frac', dest='thinned_frac', type=float, default=1,
         help='Proportion of non-burnin trees to write as output.')
+    parser.add_argument('--convergence-threshold', dest='conv_thresh', type=float, default=None,
+        help='(Optional) Cutoff value at which convregence will be declared and tree sampling will be terminated.')
+    parser.add_argument('--convergence-min-nsamples', dest='conv_min_samp', type=float, default=None,
+        help='(Optional) Minimum number of samples required before convergence criteria is checked and allowed to terminate tree sampling.')
+    parser.add_argument('--check-convergence-every', dest='check_conv_every', type=float, default=None,
+        help='(Optional) How often convergence is checked.')
     parser.add_argument('--only-build-tensor', dest='only_build_tensor', action='store_true',
         help='Exit after building pairwise relations tensor, without sampling any trees.')
     parser.add_argument('--disable-posterior-sort', dest='sort_by_llh', action='store_false',
@@ -91,7 +97,16 @@ def _get_default_args(args):
     else:
         d_rng_i = args.d_rng_i
 
-    return parallel, tree_chains, seed, d_rng_i
+    if args.conv_thresh is not None or args.conv_min_samp is not None or args.check_conv_every is not None:
+        if args.conv_thresh is None and args.conv_min_samp is None and args.check_conv_every is None:
+            raise Exception("Not all convergence criteria is set. Either all or none of the following options should be set:\n - --convergence-threshold\n - --convergence-min-nsamples\n - --check-convergence-every")
+        convergence_options = {"threshold": args.conv_thresh,
+                            "min_samples": args.conv_min_samp,#int(25000*0.5*0.5),#1000,
+                            "check_every": args.check_conv_every}
+    else:
+        convergence_options = None
+
+    return parallel, tree_chains, seed, d_rng_i, convergence_options
 
 
 def run(data, d_rng_i, variable_ado, trees_per_chain, burnin, tree_chains, thinned_frac, seed, parallel, res):
@@ -139,11 +154,11 @@ def main():
         # parallel, tree_chains, seed, d_rng_i = (old_args.parallel, old_args.tree_chains, old_args.seed, old_args.d_rng_i)
     else:
         ### SET DEFAULT ARGUMENTS ###
-        args.parallel, args.tree_chains, args.seed, args.d_rng_i = _get_default_args(args) 
+        args.parallel, args.tree_chains, args.seed, args.d_rng_i, convergence_options = _get_default_args(args) 
         res.add("scp_args",vars(args))
     
     #Leaving this here temporarily so I can update some zip files lazily
-    args.parallel, args.tree_chains, args.seed, args.d_rng_i = _get_default_args(args) 
+    args.parallel, args.tree_chains, args.seed, args.d_rng_i, convergence_options = _get_default_args(args) 
     res.add("scp_args",vars(args))
 
     _init_hyperparams(args)
@@ -197,20 +212,23 @@ def main():
     else:
         print("Sampling trees...")
         s = time.time()
-        best_tree, adjs, llhs, accept_rates = sample_trees(data, pairs_tensor, FPR=est_FPRs, ADO=est_ADOs, 
+        best_tree, adjs, llhs, accept_rates, chain_n_samples, conv_stat = sample_trees(data, pairs_tensor, FPR=est_FPRs, ADO=est_ADOs, 
             trees_per_chain=args.trees_per_chain, 
             burnin=args.burnin, 
             nchains=args.tree_chains, 
             thinned_frac=args.thinned_frac, 
             seed=args.seed, 
             parallel=args.parallel,
-            d_rng_id=args.d_rng_i)
+            d_rng_id=args.d_rng_i,
+            convergence_options=convergence_options)
         res.add("sampling_time", time.time()-s)
         res.add("adj_mats", np.array(adjs))
         res.add("tree_llhs", np.array(llhs))
         res.add("accept_rates", np.array(accept_rates))
         res.add("best_tree_adj", np.array(best_tree.adj))
         res.add("best_tree_llh", np.array(best_tree.llh))
+        res.add("chain_n_samples", np.array(chain_n_samples))
+        res.add("convergence_stat", np.array(conv_stat))
         res.save()
 
     

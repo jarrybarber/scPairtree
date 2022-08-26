@@ -76,7 +76,7 @@ def determine_pairwise_occurance_counts(data,pair_val):
     return count_mat.astype(int)
 
 #Taken from Jeff's Pairtree
-@njit
+@njit(cache=True)
 def convert_parents_to_adjmatrix(parents):
   K = len(parents) + 1
   adjm = np.eye(K)
@@ -84,7 +84,7 @@ def convert_parents_to_adjmatrix(parents):
   return adjm
 
 #Taken from Jeff's Pairtree
-@njit
+@njit(cache=True)
 def convert_adjmatrix_to_parents(adj):
   adj = np.copy(adj)
   np.fill_diagonal(adj, 0)
@@ -93,7 +93,7 @@ def convert_adjmatrix_to_parents(adj):
     parents[i-1] = find_first(1,adj[:,i])
   return parents#np.argmax(adj[:,1:], axis=0)
 
-@njit
+@njit(cache=True)
 def compute_node_relations(adj, check_validity=False):
   #Note: adapted from Jeff's util code.
     #May make sense to move somewhere else... Perhaps some tree or pairs tensor util.
@@ -125,7 +125,7 @@ def calc_tensor_prob(tensor):
     assert not np.any(tensor==0)
     return np.sum(logsumexp(tensor,axis=0))
 
-@njit
+@njit(cache=True)
 def softmax(V):
     #Note: taken from Jeff's util code
     B = np.max(V)
@@ -140,11 +140,11 @@ def softmax(V):
     #assert np.isclose(np.sum(smax), 1)
     return smax
 
-@njit
+@njit(cache=True)
 def isclose(a,b,atol=1e-8,rtol=1e-5):
     return np.abs(a-b)<(atol + rtol*np.abs(b))
 
-@njit
+@njit(cache=True)
 def find_first(item, vec):
     """return the index of the first occurence of item in vec"""
     for i in range(len(vec)):
@@ -153,7 +153,7 @@ def find_first(item, vec):
     return -1
 
 
-@njit
+@njit(cache=True)
 def make_ancestral_from_adj(adj, check_validity=False):
     #Note: taken from Jeff's util code.
     K = len(adj)
@@ -193,7 +193,7 @@ def make_ancestral_from_adj(adj, check_validity=False):
     return Z
 
 
-@njit
+@njit(cache=True)
 def compute_node_relations(adj, check_validity=False):
     #Note: taken from Jeff's util code.
     #May make sense to move somewhere else... Perhaps some tree or pairs tensor util.
@@ -247,7 +247,7 @@ def remove_rowcol(arr, indices):
     return arr
 
 # From Jeff <3 (Not used at the moment. Still using scipy for logsumexp and loggamma)
-@njit
+@njit(cache=True)
 def logsumexp(V, axis=None):
     B = np.max(V)
     # Explicitly checking `axis` is necessary for Numba, which doesn't support

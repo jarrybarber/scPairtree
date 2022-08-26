@@ -5,7 +5,7 @@ from common import Models, DataRangeIdx, DataRange
 
 ISCLOSE_TOLERANCE = 1e-8
 
-@njit('f8(i1,f8,f8)')
+@njit('f8(i1,f8,f8)', cache=True)
 def p_phi_given_model(model, phi_a, phi_b): #P(phi|M)
     
     if (phi_a<0) or (phi_b<0) or (phi_b>1) or (phi_b>1):
@@ -36,7 +36,7 @@ def p_phi_given_model(model, phi_a, phi_b): #P(phi|M)
     
     return 0.0 #necessary for numba to not get confused
 
-@njit('f8(i1,f8,f8)')
+@njit('f8(i1,f8,f8)', cache=True)
 def _p_model_given_phi(model, phi_a, phi_b): #P(M|Phi) - Used in error rate estimation.
     
     if (phi_a<0) or (phi_b<0) or (phi_b>1) or (phi_b>1):
@@ -70,7 +70,7 @@ def _p_model_given_phi(model, phi_a, phi_b): #P(M|Phi) - Used in error rate esti
     
     return 0.0 #necessary for numba to not get confused
 
-@njit('f8(i8,i8,f8,f8,i8)')
+@njit('f8(i8,i8,f8,f8,i8)', cache=True)
 def p_data_given_truth_and_errors(d, t, fpr, ado, d_rng_i=DataRangeIdx.ref_var_nodata): #p(D_ij|t,fpr,ado)
     # d=data value
     # t=hidden true value
@@ -128,7 +128,7 @@ def p_data_given_truth_and_errors(d, t, fpr, ado, d_rng_i=DataRangeIdx.ref_var_n
             return (1-ado)**2*(1-fpr)**2 + 2*ado*(1-ado)*(1-fpr)
     return 0.0 #necessary for numba to not get confused
 
-@njit('f8(i1,i1,i1,f8,f8)')
+@njit('f8(i1,i1,i1,f8,f8)', cache=True)
 def p_trueDat_given_model_and_phis(t1,t2,model,phi1,phi2):
     if model==Models.cocluster:
         if (phi1 != phi2) | (t1 != t2):
@@ -206,7 +206,7 @@ def log_model_posterior(model,pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, p
     
     return _log_model_posterior(model,pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, d_rng)
 
-@njit
+@njit(cache=True)
 def _log_model_posterior(model,pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, d_rng):
     #Just the part that needs to be numbaed
     phi_pri = p_phi_given_model(model, phi_a, phi_b)
