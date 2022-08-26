@@ -792,11 +792,11 @@ def sample_trees(sc_data, pairs_tensor, FPR, ADO, trees_per_chain, burnin, nchai
         conv_stat = []
         checking_times = []
         with progressbar(total=total, desc='Sampling trees', unit='tree', dynamic_ncols=True) as pbar:
-            with concurrent.futures.ProcessPoolExecutor(max_workers=parallel) as ex:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=parallel, mp_context=multiprocessing.get_context("spawn")) as ex:
                 for C in range(nchains):
                     # Ensure each chain's random seed is different from the seed used to
                     # seed the initial scPairtree invocation, yet nonetheless reproducible.
-                    jobs.append(ex.submit(_new_run_chain, sc_data, pairs_tensor, FPR, ADO, trees_per_chain, thinned_frac, burnin, seed + C + 1, d_rng_id, chain_status_queue[C], convergence_options))
+                    jobs.append(ex.submit(_run_chain, sc_data, pairs_tensor, FPR, ADO, trees_per_chain, thinned_frac, burnin, seed + C + 1, d_rng_id, chain_status_queue[C], convergence_options))
 
                 while True:
                     finished = 0
