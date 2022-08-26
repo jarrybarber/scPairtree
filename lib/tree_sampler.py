@@ -872,7 +872,7 @@ def sample_trees(sc_data, pairs_tensor, FPR, ADO, trees_per_chain, burnin, nchai
     else:
         results = []
         for C in range(nchains):
-            results.append(_new_run_chain(sc_data, pairs_tensor, FPR, ADO, trees_per_chain, thinned_frac, seed + C + 1, d_rng_id, None, None))
+            results.append(_run_chain(sc_data, pairs_tensor, FPR, ADO, trees_per_chain, thinned_frac, seed + C + 1, d_rng_id, None, None))
     merged_adj = []
     merged_llh = []
     accept_rates = []
