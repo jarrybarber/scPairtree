@@ -23,7 +23,7 @@ TreeSample = namedtuple('TreeSample', (
 #     'check_every'
 # ))
 
-@njit
+@njit(cache=True)
 def _this_logsumexp_axis0(V):
     #Jeez. It's messy but should work
     #Written so that it works with numba. More restrictive than numpy implementation since it only works along axis 0
@@ -36,7 +36,7 @@ def _this_logsumexp_axis0(V):
         out[i] = B + np.log(summed)
     return out
 
-@njit
+@njit(cache=True)
 def _calc_tree_llh(data, anc, FPR, ADO, dtype=DataRangeIdx.ref_var_nodata):
     #First, I need to calculate the number of true positives/negatives, and false positives/negatives for
     #the case of each cell being assigned to each node.
@@ -67,7 +67,7 @@ def _calc_tree_llh(data, anc, FPR, ADO, dtype=DataRangeIdx.ref_var_nodata):
     return tree_llh
 
 
-@njit
+@njit(cache=True)
 def make_ancestral_from_adj(adj, check_validity=False):
     #Note: taken from Jeff's util code.
     K = len(adj)
@@ -107,7 +107,7 @@ def make_ancestral_from_adj(adj, check_validity=False):
     return Z
 
 
-@njit
+@njit(cache=True)
 def _calc_tree_logmutrel(adj, pairs_tensor, check_validity=False):
     #NOTE: This code was copied from Jeff's tree_sampler.py
     node_rels = util.compute_node_relations(adj, check_validity)
@@ -129,7 +129,7 @@ def _calc_tree_logmutrel(adj, pairs_tensor, check_validity=False):
         assert np.all(tree_logmutrel <= 0)
     return tree_logmutrel
 
-@njit
+@njit(cache=True)
 def _scaled_softmax(A, R=100):
     #NOTE: This code was copied from Jeff's tree_sampler.py
     #Also, I feel like this should be in util or something
@@ -157,7 +157,7 @@ def _scaled_softmax(A, R=100):
 #     assert W[choice] > 0
 #     return choice
 
-@njit
+@njit(cache=True)
 def _sample_cat(W):
     cumm = 0
     for w in W:
@@ -235,7 +235,7 @@ def _init_cluster_adj_branching(K):
     cluster_adj[0,:] = 1
     return cluster_adj
 
-@njit
+@njit(cache=True)
 def _make_W_nodes_mutrel(adj, anc, pairs_tensor):
     #NOTE: This code was copied from Jeff's tree_sampler.py
     K = len(adj)
@@ -289,7 +289,7 @@ def _old_make_W_nodes_mutrel(adj, anc, pairs_tensor):
 
     return weights
 
-@njit
+@njit(cache=True)
 def _make_W_nodes_uniform(adj):
     #NOTE: This code was copied from Jeff's tree_sampler.py
     K = len(adj)
@@ -298,7 +298,7 @@ def _make_W_nodes_uniform(adj):
     weights /= np.sum(weights)
     return weights
 
-@njit
+@njit(cache=True)
 def _update_node_rels(node_rels,A,B):
     predicted_node_rels = np.copy(node_rels)
     if node_rels[A,B] == Models.B_A:
@@ -346,7 +346,7 @@ def _update_node_rels(node_rels,A,B):
                 predicted_node_rels[i,j] = Models.diff_branches
     return predicted_node_rels
 
-@njit
+@njit(cache=True)
 def _calc_move_logweight(node_rels, pairs_tensor, dest, subtree_head, check_validity=False):
     #NOTE: This code was copied from Jeff's tree_sampler.py
     K = len(node_rels)
@@ -362,7 +362,7 @@ def _calc_move_logweight(node_rels, pairs_tensor, dest, subtree_head, check_vali
     
     return move_weight
 
-@njit
+@njit(cache=True)
 def _make_W_dests_mutrel(subtree_head, curr_parent, adj, anc, pairs_tensor):
     #NOTE: This code was copied from Jeff's tree_sampler.py
     assert subtree_head > 0
@@ -393,7 +393,7 @@ def _make_W_dests_mutrel(subtree_head, curr_parent, adj, anc, pairs_tensor):
     weights /= np.sum(weights)
     return weights
 
-@njit
+@njit(cache=True)
 def _old_make_W_dests_mutrel(subtree_head, curr_parent, adj, anc, pairs_tensor):
     #NOTE: This code was copied from Jeff's tree_sampler.py
     assert subtree_head > 0
@@ -443,7 +443,7 @@ def _old_make_W_dests_mutrel(subtree_head, curr_parent, adj, anc, pairs_tensor):
     weights /= np.sum(weights)
     return weights
 
-@njit
+@njit(cache=True)
 def _make_W_dests_uniform(subtree_head, curr_parent, adj):
     #NOTE: This code was copied from Jeff's tree_sampler.py
     K = len(adj)
@@ -453,14 +453,14 @@ def _make_W_dests_uniform(subtree_head, curr_parent, adj):
     weights /= np.sum(weights)
     return weights
 
-@njit
+@njit(cache=True)
 def _make_W_nodes_combined(adj, anc, pairs_tensor):
     #NOTE: This code was copied from Jeff's tree_sampler.py
     W_nodes_uniform = _make_W_nodes_uniform(adj)
     W_nodes_mutrel = _make_W_nodes_mutrel(adj, anc, pairs_tensor)
     return np.vstack((W_nodes_uniform, W_nodes_mutrel))
 
-@njit
+@njit(cache=True)
 def _make_W_dests_combined(subtree_head, adj, anc, pairs_tensor):
     #NOTE: This code was copied from Jeff's tree_sampler.py
     curr_parent = _find_parent(subtree_head, adj)
@@ -469,7 +469,7 @@ def _make_W_dests_combined(subtree_head, adj, anc, pairs_tensor):
     # W_dests_mutrel = _old_make_W_dests_mutrel(subtree_head, curr_parent, adj, anc, pairs_tensor) #Here is the main sore spot (for slowness)
     return np.vstack((W_dests_uniform, W_dests_mutrel))
 
-@njit
+@njit(cache=True)
 def _find_parent(node, adj):
     #NOTE: This code was copied from Jeff's tree_sampler.py
     col = np.copy(adj[:,node])
@@ -478,7 +478,7 @@ def _find_parent(node, adj):
     assert len(parents) == 1
     return parents[0]
 
-@njit
+@njit(cache=True)
 def _modify_tree(adj, anc, A, B, check_validity=False):
     #NOTE: This code was copied from Jeff's tree_sampler.py
     '''If `B` is ancestral to `A`, swap nodes `A` and `B`. Otherwise, move
@@ -531,7 +531,7 @@ def _modify_tree(adj, anc, A, B, check_validity=False):
         adj[i,i] = 1
     return adj
 
-@njit
+@njit(cache=True)
 def _generate_new_sample(old_samp, data, pairs_tensor, FPR, ADO, d_rng_id):
     #NOTE: This code was copied from Jeff's tree_sampler.py
     #I removed last two inputs for calculating the phis.
@@ -792,11 +792,11 @@ def sample_trees(sc_data, pairs_tensor, FPR, ADO, trees_per_chain, burnin, nchai
         conv_stat = []
         checking_times = []
         with progressbar(total=total, desc='Sampling trees', unit='tree', dynamic_ncols=True) as pbar:
-            with concurrent.futures.ProcessPoolExecutor(max_workers=parallel) as ex:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=parallel, mp_context=multiprocessing.get_context("spawn")) as ex:
                 for C in range(nchains):
                     # Ensure each chain's random seed is different from the seed used to
                     # seed the initial scPairtree invocation, yet nonetheless reproducible.
-                    jobs.append(ex.submit(_new_run_chain, sc_data, pairs_tensor, FPR, ADO, trees_per_chain, thinned_frac, burnin, seed + C + 1, d_rng_id, chain_status_queue[C], convergence_options))
+                    jobs.append(ex.submit(_run_chain, sc_data, pairs_tensor, FPR, ADO, trees_per_chain, thinned_frac, burnin, seed + C + 1, d_rng_id, chain_status_queue[C], convergence_options))
 
                 while True:
                     finished = 0

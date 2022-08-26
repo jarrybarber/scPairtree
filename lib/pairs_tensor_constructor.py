@@ -150,8 +150,7 @@ def complete_tensor(scores):
     new_t[range(nSNVs),range(nSNVs),Models.garbage] = -np.inf
     return new_t
 
-
-@njit
+@njit(cache=True)
 def normalize_and_unlog_pairs_tensor(pairs_tensor, ignore_coclust = False):
     assert np.all(pairs_tensor<=0) #I.e., is in log space
 
