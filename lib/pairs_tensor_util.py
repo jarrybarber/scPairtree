@@ -207,19 +207,21 @@ def log_model_posterior(model,pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, p
     return _log_model_posterior(model,pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, d_rng)
 
 @njit(cache=True)
-def _log_model_posterior(model,pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, d_rng):
-    #Just the part that needs to be numbaed
+def _log_model_posterior(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, d_rng):
     phi_pri = p_phi_given_model(model, phi_a, phi_b)
     if phi_pri==0:
         return -np.inf
-
-    log_post = np.log(phi_pri) + \
-            np.sum(
-                np.array([np.log(np.sum(np.array([np.exp(
-                    np.log(p_data_given_truth_and_errors(d_i,t_n,fpr_a,ado_a,d_rng_i))+
-                    np.log(p_data_given_truth_and_errors(d_j,t_m,fpr_b,ado_b,d_rng_i))+
-                    np.log(p_trueDat_given_model_and_phis(t_n,t_m,model,phi_a,phi_b))
-                    )for t_n in (0,1) for t_m in (0,1)])))*pairwise_occurances[i,j] 
-                for i,d_i in enumerate(d_rng) for j,d_j in enumerate(d_rng)]))
+    
+    log_post = np.log(phi_pri)    
+    for i,d_i in enumerate(d_rng):
+        for j,d_j in enumerate(d_rng):
+            to_sum = 0
+            for t_n in (0,1):
+                for t_m in (0,1):
+                    to_sum += p_data_given_truth_and_errors(d_i,t_n,fpr_a,ado_a,d_rng_i) * \
+                              p_data_given_truth_and_errors(d_j,t_m,fpr_b,ado_b,d_rng_i) * \
+                              p_trueDat_given_model_and_phis(t_n,t_m,model,phi_a,phi_b)
+                                
+            log_post += pairwise_occurances[i,j] * np.log(to_sum)
     
     return log_post
