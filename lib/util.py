@@ -271,3 +271,22 @@ def logsumexp(V, axis=None):
       B = np.ones(summed.shape)
     log_sum = B + np.log(summed)
     return log_sum
+
+def make_adj_from_anc(anc):
+    #this will be pretty quick and dirty...
+    this_anc = np.copy(anc)
+    np.fill_diagonal(this_anc,0)
+    
+    adj = np.zeros(this_anc.shape)
+    np.fill_diagonal(adj,1)
+    
+    n_clust = len(this_anc)
+    for child in range(1,n_clust):
+        is_anc_to_child = np.argwhere(this_anc[:,child])
+        par = 0
+        for j in is_anc_to_child:
+            is_dec_cur_par = this_anc[par,j]
+            if is_dec_cur_par:
+                par = j
+        adj[par,child] = 1
+    return adj

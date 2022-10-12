@@ -200,6 +200,7 @@ def log_model_posterior(model,pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, p
     #NOTE: I know that this way of setting d_set is annoying, but passing in an array into numba and performing checks on it make numba slow waaaaaay down. Think it has to make some functional calls to python...
     d_rng = DataRange[d_rng_i]
     
+    #Note: these assertions don't seem to slow down runtime at all
     assert len(pairwise_occurances.shape)==2
     assert pairwise_occurances.shape[0] == pairwise_occurances.shape[1]
     assert pairwise_occurances.shape[0] == len(d_rng)

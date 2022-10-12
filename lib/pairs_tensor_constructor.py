@@ -6,20 +6,20 @@ from scipy.optimize import minimize
 from scipy.special import logsumexp
 from numba import njit
 
-from common import Models, NUM_MODELS
+from common import Models, NUM_MODELS, _EPSILON
 from util import determine_all_pairwise_occurance_counts
 from pairs_tensor_util import model_posterior, log_model_posterior
 
 
 
-def construct_model_posterior_matrix(data,model,alphas,betas,d_rng_i,quad_tol=1e0,verbose=True,scale_integrand=None):
+def construct_model_posterior_matrix(data,model,fprs,ados,d_rng_i,quad_tol=1e0,verbose=True,scale_integrand=None):
     
     pairwise_occurances, _ = determine_all_pairwise_occurance_counts(data, d_rng_i)
 
 
     nSNVs, nCells = data.shape
-    assert nSNVs == len(alphas)
-    assert nSNVs == len(betas)
+    assert nSNVs == len(fprs)
+    assert nSNVs == len(ados)
 
     if (scale_integrand is None):
         #If we are working with more than 150 cells then there is a chance that we will experience underflow issues.
@@ -74,21 +74,21 @@ def construct_model_posterior_matrix(data,model,alphas,betas,d_rng_i,quad_tol=1e
             if scale_integrand:
                 #In order to avoid underflow issues during integration, determine the maximum of the integrand and scale it by that.
                 #In order for this to work, I converted the integrands to work in log space and return the non-logged, scaled score.
-                #Thus, once integration is complete, log the score and add the scale back onto the log(score) to remove it's influence.
+                #Thus, once integration is complete, log the score and add the scale back onto the log(score) to remove its influence.
                 start = time.time()
                 #I found minimization to be slow and attempt to optimize it resulted in very wrong answers. Simply doing a grid search in
                 #the allowable range and using that min to the function results in great runtime savings.
-                x0 = x0s[np.argmin([to_min(x,alphas[s1], alphas[s2], betas[s1], betas[s2], pairwise_occurances[:,:,s1,s2]) for x in x0s])]
-                min_res = minimize(to_min, x0, method="Nelder-Mead", bounds=((0,1),(0,1)), args = (alphas[s1], alphas[s2], betas[s1], betas[s2], pairwise_occurances[:,:,s1,s2]))
+                x0 = x0s[np.argmin([to_min(x,fprs[s1], fprs[s2], ados[s1], ados[s2], pairwise_occurances[:,:,s1,s2]) for x in x0s])]
+                min_res = minimize(to_min, x0, method="Nelder-Mead", bounds=((0,1),(0,1)), args = (fprs[s1], fprs[s2], ados[s1], ados[s2], pairwise_occurances[:,:,s1,s2]))
                 # print(min_res)
                 scale = -min_res['fun']
                 end = time.time()
                 min_rts.append(end-start)
             start = time.time()
             if model==Models.cocluster:
-                score = quad(to_integrate, 0, 1, args=(alphas[s1], alphas[s2], betas[s1], betas[s2], pairwise_occurances[:,:,s1,s2], scale),epsabs=0,epsrel=quad_tol)
+                score = quad(to_integrate, 0, 1, args=(fprs[s1], fprs[s2], ados[s1], ados[s2], pairwise_occurances[:,:,s1,s2], scale),epsabs=0,epsrel=quad_tol)
             else:
-                score = dblquad(to_integrate, 0, 1, L, U, args=(alphas[s1], alphas[s2], betas[s1], betas[s2], pairwise_occurances[:,:,s1,s2],scale),epsabs=0,epsrel=quad_tol)
+                score = dblquad(to_integrate, 0, 1, L, U, args=(fprs[s1], fprs[s2], ados[s1], ados[s2], pairwise_occurances[:,:,s1,s2],scale),epsabs=0,epsrel=quad_tol)
             end = time.time()
             quad_rts.append(end-start)
             scores[s1,s2] = np.log(score[0]) + scale
@@ -101,38 +101,43 @@ def construct_model_posterior_matrix(data,model,alphas,betas,d_rng_i,quad_tol=1e
 
 
 
-def construct_pairs_tensor(data, alpha, beta, d_rng_i, quad_tol=1e0, verbose=True, scale_integrand=None):
+def construct_pairs_tensor(data, fpr, ado, d_rng_i, quad_tol=1e0, verbose=True, scale_integrand=None):
     
-    #construct_model_posterior_matrix currently assumes that alpha and beta will be passed as a vector to allow for individual error rates
+    #construct_model_posterior_matrix currently assumes that fpr and ado will be passed as a vector to allow for individual error rates
     #If using global error rates and so only input scalar, convert to vector
     nSNVs = data.shape[0]
-    if np.isscalar(alpha):
-        alpha = np.zeros((nSNVs,)) + alpha
-    if np.isscalar(beta):
-        beta = np.zeros((nSNVs,)) + beta
-    assert len(alpha) == nSNVs
-    assert len(beta) == nSNVs
+    if np.isscalar(fpr):
+        fpr = np.zeros((nSNVs,)) + fpr
+    if np.isscalar(ado):
+        ado = np.zeros((nSNVs,)) + ado
+    assert len(fpr) == nSNVs
+    assert len(ado) == nSNVs
     
     #Without using spawn context, these can get stuck in a lock somehow.
     #I didn't debug too thoroughly, I just know this worked :D
     pool = get_context("spawn").Pool(NUM_MODELS)
     results = {}
     
-    results[Models.A_B] = pool.apply_async(construct_model_posterior_matrix, args=(np.copy(data), Models.A_B, alpha, beta, d_rng_i, quad_tol, verbose, scale_integrand))
-    results[Models.B_A] = pool.apply_async(construct_model_posterior_matrix, args=(np.copy(data), Models.B_A, alpha, beta, d_rng_i, quad_tol, verbose, scale_integrand))
-    results[Models.cocluster] = pool.apply_async(construct_model_posterior_matrix, args=(np.copy(data), Models.cocluster, alpha, beta, d_rng_i, quad_tol, verbose, scale_integrand))
-    results[Models.diff_branches] = pool.apply_async(construct_model_posterior_matrix, args=(np.copy(data), Models.diff_branches, alpha, beta, d_rng_i, quad_tol, verbose, scale_integrand))
-    results[Models.garbage] = pool.apply_async(construct_model_posterior_matrix, args=(np.copy(data), Models.garbage, alpha, beta, d_rng_i, quad_tol, verbose, scale_integrand))
+    results[Models.A_B] = pool.apply_async(construct_model_posterior_matrix, args=(np.copy(data), Models.A_B, fpr, ado, d_rng_i, quad_tol, verbose, scale_integrand))
+    results[Models.B_A] = pool.apply_async(construct_model_posterior_matrix, args=(np.copy(data), Models.B_A, fpr, ado, d_rng_i, quad_tol, verbose, scale_integrand))
+    results[Models.cocluster] = pool.apply_async(construct_model_posterior_matrix, args=(np.copy(data), Models.cocluster, fpr, ado, d_rng_i, quad_tol, verbose, scale_integrand))
+    results[Models.diff_branches] = pool.apply_async(construct_model_posterior_matrix, args=(np.copy(data), Models.diff_branches, fpr, ado, d_rng_i, quad_tol, verbose, scale_integrand))
+    results[Models.garbage] = pool.apply_async(construct_model_posterior_matrix, args=(np.copy(data), Models.garbage, fpr, ado, d_rng_i, quad_tol, verbose, scale_integrand))
     pool.close()
     pool.join()
 
     tensor = np.zeros((nSNVs,nSNVs,NUM_MODELS))
     for k in results:
         tensor[:,:,k] = results[k].get()
+    pool.terminate()
+    
+    # tensor = _complete_tensor(tensor)
+    tensor = _normalize_pairs_tensor(tensor)
+    tensor = _complete_tensor(tensor)
     return tensor
 
 
-def complete_tensor(scores):
+def _complete_tensor(scores):
     #For speed I only actually calculate about half of the scores because of redundancy. Here I just fill in the gaps
     #so that we have full matrices.
     nSNVs = scores.shape[0]
@@ -142,7 +147,7 @@ def complete_tensor(scores):
     new_t[:,:,Models.cocluster] = scores[:,:,Models.cocluster] + scores[:,:,Models.cocluster].transpose()
     new_t[:,:,Models.diff_branches] = scores[:,:,Models.diff_branches] + scores[:,:,Models.diff_branches].transpose()
     new_t[:,:,Models.garbage] = scores[:,:,Models.garbage] + scores[:,:,Models.garbage].transpose()
-    #Should always be confident of snvs being coclustered with itself
+    #SNVs are always coincident with themselves
     new_t[range(nSNVs),range(nSNVs),Models.A_B] = -np.inf
     new_t[range(nSNVs),range(nSNVs),Models.B_A] = -np.inf
     new_t[range(nSNVs),range(nSNVs),Models.cocluster] = 0
@@ -150,17 +155,21 @@ def complete_tensor(scores):
     new_t[range(nSNVs),range(nSNVs),Models.garbage] = -np.inf
     return new_t
 
-@njit(cache=True)
-def normalize_and_unlog_pairs_tensor(pairs_tensor, ignore_coclust = False):
+# @njit(cache=True)
+def _normalize_pairs_tensor(pairs_tensor, ignore_coclust=False, ignore_garbage=True):
     assert np.all(pairs_tensor<=0) #I.e., is in log space
 
     n_mut = len(pairs_tensor)
     normed = np.copy(pairs_tensor)
     if ignore_coclust:
         normed[:,:,Models.cocluster] = -np.inf
+    if ignore_garbage:
+        normed[:,:,Models.garbage] = -np.inf
     for i in range(n_mut):
         for j in range(n_mut):
             B = np.max(normed[i,j,:])
-            normed[i,j,:] = normed[i,j,:] - B
-            normed[i,j,:] = np.exp(normed[i,j,:]) / np.sum(np.exp(normed[i,j,:]))
+            # normed[i,j,:] = normed[i,j,:] - B
+            # normed[i,j,:] = np.exp(normed[i,j,:]) / np.sum(np.exp(normed[i,j,:]))
+            normed[i,j,:] = normed[i,j,:] - logsumexp(normed[i,j,:])
+    # normed = normed - logsumexp(normed,axis=2)
     return normed
