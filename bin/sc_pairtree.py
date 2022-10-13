@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
 import hyperparams
 from util import load_data
 from error_rate_estimator import estimate_error_rates
-from pairs_tensor_constructor import construct_pairs_tensor, complete_tensor, normalize_and_unlog_pairs_tensor
+from pairs_tensor_constructor import construct_pairs_tensor
 from tree_sampler import sample_trees, compute_posterior
 from tree_plotter import plot_tree
 from pairs_tensor_plotter import plot_best_model
@@ -120,7 +120,6 @@ def run(data, d_rng_i, variable_ado, trees_per_chain, burnin, tree_chains, thinn
     ### CREATE THE PAIRS TENSOR ###
     print("Constructing pairs tensor...")
     pairs_tensor = construct_pairs_tensor(data.data, FPRs, ADOs, d_rng_i=d_rng_i, scale_integrand=True)
-    pairs_tensor = complete_tensor(pairs_tensor)
     ### IF I COME UP WITH CO-CLUSTERING METHOD, INSERT HERE ###
 
 
