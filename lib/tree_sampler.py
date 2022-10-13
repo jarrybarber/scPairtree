@@ -792,6 +792,7 @@ def gelman_rubin_convergence(chain_vars, chain_means, trees_per_chain, nchains):
     B = vom - mean_wcv/trees_per_chain
     return np.sqrt(1. + B/(mean_wcv+_EPSILON))
 
+
 def sample_trees(sc_data, pairs_tensor, FPR, ADO, trees_per_chain, burnin, nchains, thinned_frac, seed, parallel, d_rng_id, convergence_options=None):
     assert nchains > 0
     assert trees_per_chain > 0

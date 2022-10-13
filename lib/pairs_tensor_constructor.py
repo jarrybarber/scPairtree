@@ -1,6 +1,7 @@
+import warnings
 import numpy as np
 import time
-from multiprocessing import Pool, get_context
+import multiprocessing
 from scipy.integrate import quad, dblquad
 from scipy.optimize import minimize
 from scipy.special import logsumexp
@@ -10,131 +11,77 @@ from common import Models, NUM_MODELS, _EPSILON
 from util import determine_all_pairwise_occurance_counts
 from pairs_tensor_util import model_posterior, log_model_posterior
 
+# @njit
+def _2d_integrand(phi1,phi2,model,pairwise_occurances,fpr1,fpr2,ado1,ado2,d_rng_i,scale):
+    return model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,phi1,phi2,d_rng_i,scale)
 
+# @njit
+def _1d_integrand(phi,model,pairwise_occurances,fpr1,fpr2,ado1,ado2,d_rng_i,scale):
+    return model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,phi,phi,d_rng_i,scale)
 
-def construct_model_posterior_matrix(data,model,fprs,ados,d_rng_i,quad_tol=1e0,verbose=True,scale_integrand=None):
-    
-    pairwise_occurances, _ = determine_all_pairwise_occurance_counts(data, d_rng_i)
+# @njit
+def _2d_tomin(x,model,pairwise_occurances,fpr1,fpr2,ado1,ado2,d_rng_i):
+    return -log_model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,x[0],x[1],d_rng_i)
 
+# @njit
+def _1d_tomin(x,model,pairwise_occurances,fpr1,fpr2,ado1,ado2,d_rng_i):
+    return -log_model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,x[0],x[0],d_rng_i)
 
-    nSNVs, nCells = data.shape
-    assert nSNVs == len(fprs)
-    assert nSNVs == len(ados)
-
-    if (scale_integrand is None):
-        #If we are working with more than 150 cells then there is a chance that we will experience underflow issues.
-        # -->Scale the integrand during integration.
-        scale_integrand = nCells > 150
-
-    
+def _get_model_params(model, d_rng_i):
     if model==Models.A_B:
-        to_integrate = lambda phi1,phi2,fpr1,fpr2,ado1,ado2,pairwise_occurances,scale: model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,phi1,phi2,d_rng_i,scale)
-        to_min       = lambda x,fpr1,fpr2,ado1,ado2,pairwise_occurances: -log_model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,x[0],x[1],d_rng_i)
+        to_integrate = _2d_integrand
+        to_min       = _2d_tomin
         x0s = [[x,y] for x in np.linspace(0.01,0.99,5) for y in np.linspace(0.01,0.99,5) if y<=x] #minimization starting point
         L = lambda x: x #Integration lower bound
         U = lambda x: 1 #Integration upper bound
     elif model==Models.B_A:
-        to_integrate = lambda phi1,phi2,fpr1,fpr2,ado1,ado2,pairwise_occurances,scale: model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,phi1,phi2,d_rng_i,scale)
-        to_min       = lambda x,fpr1,fpr2,ado1,ado2,pairwise_occurances: -log_model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,x[0],x[1],d_rng_i)
+        to_integrate = _2d_integrand
+        to_min       = _2d_tomin
         x0s = [[x,y] for x in np.linspace(0.01,0.99,5) for y in np.linspace(0.01,0.99,5) if y>=x]
         L = lambda x: 0
         U = lambda x: x
     elif model==Models.cocluster:
-        to_integrate = lambda phi,fpr1,fpr2,ado1,ado2,pairwise_occurances,scale: model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,phi,phi,d_rng_i,scale)
-        def to_min(x,fpr1,fpr2,ado1,ado2,pairwise_occurances):
-            return -log_model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,x[0],x[0],d_rng_i)
+        to_integrate = _1d_integrand
+        to_min = _1d_tomin
         x0s = [[x] for x in np.linspace(0.01,0.99,10)]
         L = lambda x: None
         U = lambda x: None
     elif model==Models.diff_branches:
-        to_integrate = lambda phi1,phi2,fpr1,fpr2,ado1,ado2,pairwise_occurances,scale: model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,phi1,phi2,d_rng_i,scale)
-        to_min       = lambda x,fpr1,fpr2,ado1,ado2,pairwise_occurances: -log_model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,x[0],x[1],d_rng_i)
+        to_integrate = _2d_integrand
+        to_min       = _2d_tomin
         x0s = [[x,y] for x in np.linspace(0.01,0.99,5) for y in np.linspace(0.01,0.99,5) if (x+y)<=1]
         L = lambda x: 0
         U = lambda x: 1-x
     elif model==Models.garbage:
-        to_integrate = lambda phi1,phi2,fpr1,fpr2,ado1,ado2,pairwise_occurances,scale: model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,phi1,phi2,d_rng_i,scale)
-        to_min       = lambda x,fpr1,fpr2,ado1,ado2,pairwise_occurances: -log_model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,x[0],x[1],d_rng_i)
+        to_integrate = _2d_integrand
+        to_min       = _2d_tomin
         x0s = [[x,y] for x in np.linspace(0.01,0.99,5) for y in np.linspace(0.01,0.99,5)]
         L = lambda x: 0
         U = lambda x: 1
-    
+    return to_integrate, to_min, x0s, L, U
 
-    scores = np.zeros((nSNVs,nSNVs))
-    count = 0
+
+def _calc_relationship_posterior(model, pairwise_occurances, fprs, ados, scale_integrand, quad_tol, d_rng_i):
     scale = 0
-    min_rts = []
-    quad_rts = []
-    for s1 in range(nSNVs):
-        for s2 in range(s1+1,nSNVs):
-            if verbose:
-                print("\r", 100.*count/(nSNVs*(nSNVs+1)/2), "% complete", end='   ')
-            count += 1
-            
-            if scale_integrand:
-                #In order to avoid underflow issues during integration, determine the maximum of the integrand and scale it by that.
-                #In order for this to work, I converted the integrands to work in log space and return the non-logged, scaled score.
-                #Thus, once integration is complete, log the score and add the scale back onto the log(score) to remove its influence.
-                start = time.time()
-                #I found minimization to be slow and attempt to optimize it resulted in very wrong answers. Simply doing a grid search in
-                #the allowable range and using that min to the function results in great runtime savings.
-                x0 = x0s[np.argmin([to_min(x,fprs[s1], fprs[s2], ados[s1], ados[s2], pairwise_occurances[:,:,s1,s2]) for x in x0s])]
-                min_res = minimize(to_min, x0, method="Nelder-Mead", bounds=((0,1),(0,1)), args = (fprs[s1], fprs[s2], ados[s1], ados[s2], pairwise_occurances[:,:,s1,s2]))
-                # print(min_res)
-                scale = -min_res['fun']
-                end = time.time()
-                min_rts.append(end-start)
-            start = time.time()
-            if model==Models.cocluster:
-                score = quad(to_integrate, 0, 1, args=(fprs[s1], fprs[s2], ados[s1], ados[s2], pairwise_occurances[:,:,s1,s2], scale),epsabs=0,epsrel=quad_tol)
-            else:
-                score = dblquad(to_integrate, 0, 1, L, U, args=(fprs[s1], fprs[s2], ados[s1], ados[s2], pairwise_occurances[:,:,s1,s2],scale),epsabs=0,epsrel=quad_tol)
-            end = time.time()
-            quad_rts.append(end-start)
-            scores[s1,s2] = np.log(score[0]) + scale
-    if verbose:
-        if scale_integrand:
-            print("Avg min time =", np.mean(min_rts))  
-            print("Avg quad time =", np.mean(quad_rts))  
-        print(' ')
-    return scores
-
-
-
-def construct_pairs_tensor(data, fpr, ado, d_rng_i, quad_tol=1e0, verbose=True, scale_integrand=None):
-    
-    #construct_model_posterior_matrix currently assumes that fpr and ado will be passed as a vector to allow for individual error rates
-    #If using global error rates and so only input scalar, convert to vector
-    nSNVs = data.shape[0]
-    if np.isscalar(fpr):
-        fpr = np.zeros((nSNVs,)) + fpr
-    if np.isscalar(ado):
-        ado = np.zeros((nSNVs,)) + ado
-    assert len(fpr) == nSNVs
-    assert len(ado) == nSNVs
-    
-    #Without using spawn context, these can get stuck in a lock somehow.
-    #I didn't debug too thoroughly, I just know this worked :D
-    pool = get_context("spawn").Pool(NUM_MODELS)
-    results = {}
-    
-    results[Models.A_B] = pool.apply_async(construct_model_posterior_matrix, args=(np.copy(data), Models.A_B, fpr, ado, d_rng_i, quad_tol, verbose, scale_integrand))
-    results[Models.B_A] = pool.apply_async(construct_model_posterior_matrix, args=(np.copy(data), Models.B_A, fpr, ado, d_rng_i, quad_tol, verbose, scale_integrand))
-    results[Models.cocluster] = pool.apply_async(construct_model_posterior_matrix, args=(np.copy(data), Models.cocluster, fpr, ado, d_rng_i, quad_tol, verbose, scale_integrand))
-    results[Models.diff_branches] = pool.apply_async(construct_model_posterior_matrix, args=(np.copy(data), Models.diff_branches, fpr, ado, d_rng_i, quad_tol, verbose, scale_integrand))
-    results[Models.garbage] = pool.apply_async(construct_model_posterior_matrix, args=(np.copy(data), Models.garbage, fpr, ado, d_rng_i, quad_tol, verbose, scale_integrand))
-    pool.close()
-    pool.join()
-
-    tensor = np.zeros((nSNVs,nSNVs,NUM_MODELS))
-    for k in results:
-        tensor[:,:,k] = results[k].get()
-    pool.terminate()
-    
-    # tensor = _complete_tensor(tensor)
-    tensor = _normalize_pairs_tensor(tensor)
-    tensor = _complete_tensor(tensor)
-    return tensor
+    to_integrate, to_min, x0s, L, U = _get_model_params(model, d_rng_i)
+    if scale_integrand:
+        #In order to avoid underflow issues during integration, determine the maximum of the integrand and scale it by that.
+        #In order for this to work, I converted the integrands to work in log space and return the non-logged, scaled score.
+        #Thus, once integration is complete, log the score and add the scale back onto the log(score) to remove its influence.
+        
+        #I found minimization to be slow and attempt to optimize it resulted in very wrong answers. Simply doing a grid search in
+        #the allowable range and using that min to the function results in great runtime savings.
+        x0 = x0s[np.argmin([to_min(x, model, pairwise_occurances[:,:], fprs[0], fprs[1], ados[0], ados[1], d_rng_i) for x in x0s])]
+        min_res = minimize(to_min, x0, method="Nelder-Mead", bounds=((0,1),(0,1)), args = (model, pairwise_occurances[:,:], fprs[0], fprs[1], ados[0], ados[1], d_rng_i))
+        scale = -min_res['fun']
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if model==Models.cocluster:
+            score = quad(to_integrate, 0, 1, args=(model, pairwise_occurances[:,:], fprs[0], fprs[1], ados[0], ados[1], d_rng_i, scale),epsabs=0,epsrel=quad_tol)
+        else:
+            score = dblquad(to_integrate, 0, 1, L, U, args=(model, pairwise_occurances[:,:], fprs[0], fprs[1], ados[0], ados[1], d_rng_i, scale),epsabs=0,epsrel=quad_tol)
+    post = np.log(score[0]) + scale
+    return post
 
 
 def _complete_tensor(scores):
@@ -155,7 +102,7 @@ def _complete_tensor(scores):
     new_t[range(nSNVs),range(nSNVs),Models.garbage] = -np.inf
     return new_t
 
-# @njit(cache=True)
+
 def _normalize_pairs_tensor(pairs_tensor, ignore_coclust=False, ignore_garbage=True):
     assert np.all(pairs_tensor<=0) #I.e., is in log space
 
@@ -173,3 +120,59 @@ def _normalize_pairs_tensor(pairs_tensor, ignore_coclust=False, ignore_garbage=T
             normed[i,j,:] = normed[i,j,:] - logsumexp(normed[i,j,:])
     # normed = normed - logsumexp(normed,axis=2)
     return normed
+
+
+def construct_pairs_tensor(data, fpr, ado, d_rng_i, parallel=None, quad_tol=1e0, verbose=True, scale_integrand=None):
+    
+    #construct_model_posterior_matrix currently assumes that fpr and ado will be passed as a vector to allow for individual error rates
+    #If using global error rates and so only input scalar, convert to vector
+    if parallel is None:
+        parallel = multiprocessing.cpu_count()
+    nSNVs, nCells = data.shape
+    if np.isscalar(fpr):
+        fpr = np.zeros((nSNVs,)) + fpr
+    if np.isscalar(ado):
+        ado = np.zeros((nSNVs,)) + ado
+    assert len(fpr) == nSNVs
+    assert len(ado) == nSNVs
+    
+    if (scale_integrand is None):
+        #If we are working with more than 150 cells then there is a chance that we will experience underflow issues.
+        # -->Scale the integrand during integration.
+        scale_integrand = nCells > 150
+
+
+    # pool = multiprocessing.get_context("spawn").Pool(parallel)
+    pool = multiprocessing.Pool(parallel)
+    # results = []
+    pairwise_occurances, _ = determine_all_pairwise_occurance_counts(data, d_rng_i)
+    # for model in Models:
+    #     # to_integrate, to_min, x0s, L, U = _get_model_params(model, d_rng_i)
+    #     model_res = []
+    #     for s1 in range(nSNVs-1):
+    #         s1_res = []
+    #         for s2 in range(s1+1,nSNVs):
+    #             # s1_res.append(_calc_relationship_posterior(model, pairwise_occurances[:,:,s1,s2], [fpr[s1], fpr[s2]], [ado[s1], ado[s2]], scale_integrand, to_min, x0s, to_integrate, L, U, quad_tol))
+    #             s1_res.append(pool.apply_async(_calc_relationship_posterior, args=(model, pairwise_occurances[:,:,s1,s2], [fpr[s1], fpr[s2]], [ado[s1], ado[s2]], scale_integrand, quad_tol, d_rng_i)))
+    #         model_res.append(s1_res)
+    #     # results.append(model_res)
+    args = [[model, pairwise_occurances[:,:,s1,s2], [fpr[s1], fpr[s2]], [ado[s1], ado[s2]], scale_integrand, quad_tol, d_rng_i] for model in Models for s1 in range(nSNVs-1) for s2 in range(s1+1,nSNVs)]
+    chunksize = int(np.ceil(nSNVs*nSNVs*NUM_MODELS/2/parallel/8))
+    print(chunksize)
+    results = pool.starmap(_calc_relationship_posterior,args,chunksize=chunksize)
+    pool.close()
+    pool.join()
+    
+    tensor = np.zeros((nSNVs,nSNVs,NUM_MODELS))
+    k=0
+    for model in Models:
+        for i,s1 in enumerate(range(nSNVs-1)):
+            for j,s2 in enumerate(range(s1+1,nSNVs)):
+                # tensor[s1,s2,model] = results[model][i][j].get()
+                tensor[s1,s2,model] = results[k]
+                k+=1
+    pool.terminate()
+
+    tensor = _normalize_pairs_tensor(tensor)
+    tensor = _complete_tensor(tensor)
+    return tensor

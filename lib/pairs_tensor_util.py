@@ -178,10 +178,25 @@ def p_trueDat_given_model_and_phis(t1,t2,model,phi1,phi2):
         to_ret = 0        
     return to_ret 
 
-def model_posterior(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, scale=0):
-    post = np.exp(log_model_posterior(model,pairwise_occurances,fpr_a,fpr_b,ado_a,ado_b,phi_a,phi_b,d_rng_i) - scale)
-    return post
-
+@njit(cache=True)
+def _log_model_posterior(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, d_rng):
+    phi_pri = p_phi_given_model(model, phi_a, phi_b)
+    if phi_pri==0:
+        return -np.inf
+    
+    log_post = np.log(phi_pri)    
+    for i,d_i in enumerate(d_rng):
+        for j,d_j in enumerate(d_rng):
+            to_sum = 0
+            for t_n in (0,1):
+                for t_m in (0,1):
+                    to_sum += p_data_given_truth_and_errors(d_i,t_n,fpr_a,ado_a,d_rng_i) * \
+                              p_data_given_truth_and_errors(d_j,t_m,fpr_b,ado_b,d_rng_i) * \
+                              p_trueDat_given_model_and_phis(t_n,t_m,model,phi_a,phi_b)
+                                
+            log_post += pairwise_occurances[i,j] * np.log(to_sum)
+    
+    return log_post
 
 def log_model_posterior(model,pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i):
     # d_set=set of possible d values. Note that this can be either (0,1), [(0,1,3)] or (0,1,2,3)
@@ -207,22 +222,6 @@ def log_model_posterior(model,pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, p
     
     return _log_model_posterior(model,pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, d_rng)
 
-@njit(cache=True)
-def _log_model_posterior(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, d_rng):
-    phi_pri = p_phi_given_model(model, phi_a, phi_b)
-    if phi_pri==0:
-        return -np.inf
-    
-    log_post = np.log(phi_pri)    
-    for i,d_i in enumerate(d_rng):
-        for j,d_j in enumerate(d_rng):
-            to_sum = 0
-            for t_n in (0,1):
-                for t_m in (0,1):
-                    to_sum += p_data_given_truth_and_errors(d_i,t_n,fpr_a,ado_a,d_rng_i) * \
-                              p_data_given_truth_and_errors(d_j,t_m,fpr_b,ado_b,d_rng_i) * \
-                              p_trueDat_given_model_and_phis(t_n,t_m,model,phi_a,phi_b)
-                                
-            log_post += pairwise_occurances[i,j] * np.log(to_sum)
-    
-    return log_post
+def model_posterior(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, scale=0):
+    post = np.exp(log_model_posterior(model,pairwise_occurances,fpr_a,fpr_b,ado_a,ado_b,phi_a,phi_b,d_rng_i) - scale)
+    return post
