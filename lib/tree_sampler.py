@@ -70,31 +70,13 @@ def _this_logsumexp_axis0(V):
 def _calc_tree_llh(data,anc,fpr,ado,dtype):
     n_mut, n_cell = data.shape
 
-    # if dtype == 0: #For numba
-    #     d_set = [0,1]
-    # elif dtype == 1:
-    #     d_set = [0,1,3]
-    # elif dtype == 2:
-    #     d_set = [0,1,2,3]
-
-    # p_dga = np.zeros((len(d_set),2,n_mut,n_mut))
-    # for i,d in enumerate(d_set):
-    #     for j,t in enumerate([0,1]):
-    #         for k,p in enumerate(fpr):
-    #             for m,a in enumerate(ado):
-    #                 p_dga[i,j,k,m] = p_data_given_truth_and_errors(d,t,p,a,dtype)
-
     outer_sum = 0
     for i in range(n_cell):
         inner_sum = np.zeros(n_mut+1)
         for j in range(n_mut+1):
             for k in range(n_mut):
                 p_dga = p_data_given_truth_and_errors(data[k,i],anc[k+1,j],fpr[k],ado[k],dtype)
-                # d = int(data[k,i])
-                # if dtype==1 and d==3:
-                #     d=2
-                # a = int(anc[k+1,j])
-                inner_sum[j] += np.log(p_dga)#[d,a,k,k])
+                inner_sum[j] += np.log(p_dga)
         B = np.max(inner_sum)
         mid = np.log(np.sum(np.exp(inner_sum - B))) + B
         outer_sum += mid

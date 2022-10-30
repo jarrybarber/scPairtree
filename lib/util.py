@@ -272,6 +272,7 @@ def logsumexp(V, axis=None):
     log_sum = B + np.log(summed)
     return log_sum
 
+@njit(cache=True)
 def make_adj_from_anc(anc):
     #this will be pretty quick and dirty...
     this_anc = np.copy(anc)
@@ -282,7 +283,7 @@ def make_adj_from_anc(anc):
     
     n_clust = len(this_anc)
     for child in range(1,n_clust):
-        is_anc_to_child = np.argwhere(this_anc[:,child])
+        is_anc_to_child = np.argwhere(this_anc[:,child]).flatten()
         par = 0
         for j in is_anc_to_child:
             is_dec_cur_par = this_anc[par,j]
