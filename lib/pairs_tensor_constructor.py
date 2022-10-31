@@ -110,11 +110,12 @@ def _normalize_pairs_tensor(pairs_tensor, ignore_coclust=False, ignore_garbage=T
     normed = np.copy(pairs_tensor)
     if ignore_coclust:
         normed[:,:,Models.cocluster] = -np.inf
+        normed[range(n_mut),range(n_mut),Models.cocluster] = 0
     if ignore_garbage:
         normed[:,:,Models.garbage] = -np.inf
     for i in range(n_mut):
         for j in range(n_mut):
-            B = np.max(normed[i,j,:])
+            # B = np.max(normed[i,j,:])
             # normed[i,j,:] = normed[i,j,:] - B
             # normed[i,j,:] = np.exp(normed[i,j,:]) / np.sum(np.exp(normed[i,j,:]))
             normed[i,j,:] = normed[i,j,:] - logsumexp(normed[i,j,:])
@@ -122,9 +123,9 @@ def _normalize_pairs_tensor(pairs_tensor, ignore_coclust=False, ignore_garbage=T
     return normed
 
 
-def construct_pairs_tensor(data, fpr, ado, d_rng_i, parallel=None, quad_tol=1e0, verbose=True, scale_integrand=None):
+def construct_pairs_tensor(data, fpr, ado, d_rng_i, parallel=None, quad_tol=1e0, verbose=True, scale_integrand=None, ignore_coclust=True, ignore_garbage=True):
     
-    #construct_model_posterior_matrix currently assumes that fpr and ado will be passed as a vector to allow for individual error rates
+    #_calc_relationship_posterior currently assumes that fpr and ado will be passed as a vector to allow for individual error rates
     #If using global error rates and so only input scalar, convert to vector
     if parallel is None:
         parallel = multiprocessing.cpu_count()
@@ -141,38 +142,30 @@ def construct_pairs_tensor(data, fpr, ado, d_rng_i, parallel=None, quad_tol=1e0,
         # -->Scale the integrand during integration.
         scale_integrand = nCells > 150
 
-
-    # pool = multiprocessing.get_context("spawn").Pool(parallel)
+    mods = []
+    for m in Models:
+        if m == Models.cocluster and ignore_coclust:
+            continue
+        if m == Models.garbage and ignore_garbage:
+            continue
+        mods.append(m)
+    
     pool = multiprocessing.Pool(parallel)
-    # results = []
     pairwise_occurances, _ = determine_all_pairwise_occurance_counts(data, d_rng_i)
-    # for model in Models:
-    #     # to_integrate, to_min, x0s, L, U = _get_model_params(model, d_rng_i)
-    #     model_res = []
-    #     for s1 in range(nSNVs-1):
-    #         s1_res = []
-    #         for s2 in range(s1+1,nSNVs):
-    #             # s1_res.append(_calc_relationship_posterior(model, pairwise_occurances[:,:,s1,s2], [fpr[s1], fpr[s2]], [ado[s1], ado[s2]], scale_integrand, to_min, x0s, to_integrate, L, U, quad_tol))
-    #             s1_res.append(pool.apply_async(_calc_relationship_posterior, args=(model, pairwise_occurances[:,:,s1,s2], [fpr[s1], fpr[s2]], [ado[s1], ado[s2]], scale_integrand, quad_tol, d_rng_i)))
-    #         model_res.append(s1_res)
-    #     # results.append(model_res)
-    args = [[model, pairwise_occurances[:,:,s1,s2], [fpr[s1], fpr[s2]], [ado[s1], ado[s2]], scale_integrand, quad_tol, d_rng_i] for model in Models for s1 in range(nSNVs-1) for s2 in range(s1+1,nSNVs)]
-    chunksize = int(np.ceil(nSNVs*nSNVs*NUM_MODELS/2/parallel/8))
-    print(chunksize)
+    args = [[model, pairwise_occurances[:,:,s1,s2], [fpr[s1], fpr[s2]], [ado[s1], ado[s2]], scale_integrand, quad_tol, d_rng_i] for model in mods for s1 in range(nSNVs-1) for s2 in range(s1+1,nSNVs)]
+    chunksize = int(np.ceil(nSNVs*nSNVs*len(mods)/2/parallel/8))
     results = pool.starmap(_calc_relationship_posterior,args,chunksize=chunksize)
     pool.close()
     pool.join()
     
     tensor = np.zeros((nSNVs,nSNVs,NUM_MODELS))
     k=0
-    for model in Models:
-        for i,s1 in enumerate(range(nSNVs-1)):
-            for j,s2 in enumerate(range(s1+1,nSNVs)):
-                # tensor[s1,s2,model] = results[model][i][j].get()
+    for model in mods:
+        for s1 in range(nSNVs-1):
+            for s2 in range(s1+1,nSNVs):
                 tensor[s1,s2,model] = results[k]
                 k+=1
     pool.terminate()
-
-    tensor = _normalize_pairs_tensor(tensor)
     tensor = _complete_tensor(tensor)
+    tensor = _normalize_pairs_tensor(tensor, ignore_coclust=ignore_coclust, ignore_garbage=ignore_garbage)
     return tensor
