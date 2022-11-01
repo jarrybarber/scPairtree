@@ -1,20 +1,56 @@
-import sys, os
 import numpy as np
 import numba
-import common
-import time
-import matplotlib.pyplot as plt
-import random
 import multiprocessing
 
 from common import Models, NUM_MODELS
 from util import logsumexp
+from util import make_adj_from_anc, compute_node_relations
 
 
-def _calc_posterior_norm_constant(llhs,samp_probs):
+def calc_posterior_norm_constant(llhs, samp_probs):
     n_samples = len(llhs)
     nlogC = -np.log(n_samples) + logsumexp(llhs - samp_probs)
     return nlogC
+
+@numba.njit
+def calc_importance_sampling_val(samples, ps, gs):
+    n_samp = samples.shape[0]
+    res = 0
+    ratios = ps - gs
+    ratios = np.exp(ratios - np.max(ratios))
+    for s in range(n_samp):
+        res = res + samples[s]*ratios[s]
+    return res
+
+@numba.njit(cache=True)
+def calc_importance_sampling_matrix(samples, ps, gs):
+    n_samp = samples.shape[0]
+    res = np.zeros(samples.shape[1:])
+    ratios = ps - gs
+    ratios = np.exp(ratios - np.max(ratios))
+    for s in range(n_samp):
+        res = res + samples[s,:]*ratios[s]
+    return res
+
+@numba.njit
+def calc_importance_sampling_pairs_tensor(samples, ps, gs):
+    n_samp = samples.shape[0]
+    n_mut = samples.shape[1] - 1 
+    res = np.zeros((n_mut, n_mut, NUM_MODELS))
+    ratios = ps - gs
+    ratios = np.exp(ratios - np.max(ratios))
+    for s in range(n_samp):
+        sample = samples[s,:,:]
+        adj = make_adj_from_anc(sample)
+        node_rels = compute_node_relations(adj)
+        for i in range(n_mut):
+            for j in range(n_mut):
+                res[i,j,node_rels[i+1,j+1]] += ratios[s]
+    for i in range(n_mut):
+        for j in range(n_mut):
+            res[i,j,:] /= np.sum(res[i,j,:])
+    return res
+
 
 @numba.njit(cache=True)
 def _get_anc_vals_from_rel(rel):
@@ -121,61 +157,6 @@ def _propogate_rules(anc,i,j,rel,model_probs):
                 _propogate_rules(anc,j,k,rel,model_probs)
     return
 
-@numba.njit(cache=True)
-def _make_selection(selection_probs, samp_prob):
-    #  This is basically a fancy np.random.choice that works well with numba
-    #  and unnormalized probabilities stored in a tensor.
-    # maxP = np.max(selection_probs)
-    norm_sp = np.copy(selection_probs)
-    nrmC = 0
-    for i in range(norm_sp.shape[0]):
-        for j in range(norm_sp.shape[1]):
-            max_ij = np.max(norm_sp[i,j,:])
-            if max_ij == np.NINF:
-                norm_sp[i,j,:] = 0
-                continue
-            for rel in range(norm_sp.shape[2]):
-                norm_sp[i,j,rel] = np.exp(norm_sp[i,j,rel] - max_ij)
-                nrmC = nrmC + norm_sp[i,j,rel]
-
-    s = 0
-    a = np.random.rand()*nrmC
-    choice_made = False
-    for i in range(norm_sp.shape[0]):
-        for j in range(norm_sp.shape[1]):
-            for rel in range(norm_sp.shape[2]):
-                if a < s + norm_sp[i,j,rel]:
-                    choice_made = True
-                    samp_prob += norm_sp[i,j,rel]
-                    break
-                s = s + norm_sp[i,j,rel]
-            if choice_made:
-                break
-        if choice_made:
-                break
-    return i,j,rel, samp_prob
-
-
-def _sample_tree(pairs_tensor):
-
-    rels = {Models.A_B: "anc", Models.B_A: "dec", Models.diff_branches: "branched"}
-
-    n_mut = pairs_tensor.shape[0]
-    anc = np.full((n_mut+1,n_mut+1), -1, np.int8)
-    anc[0,:] = 1
-    anc[:,0] = 0
-    np.fill_diagonal(anc,1)
-    selection_probs = np.copy(pairs_tensor)
-    selection_probs[range(n_mut),range(n_mut),:] = -np.inf
-    selection_probs[:,:,Models.cocluster] = -np.inf
-    selection_probs[:,:,Models.garbage] = -np.inf
-    samp_prob = 0
-    while np.any(anc==-1):
-        i,j,rel, samp_prob = _make_selection(selection_probs,samp_prob)
-        _propogate_rules(anc,i,j,rel,selection_probs)
-
-    return anc, samp_prob
-
 
 @numba.njit(cache=True)
 def _sample_rel(selection_probs, samp_prob):
@@ -191,30 +172,15 @@ def _sample_rel(selection_probs, samp_prob):
     return rel, samp_prob
 
 
-def _sample_tree_w_pair_order(pairs_tensor, order_by_certainty=False):
-
+numba.njit(cache=True)
+def _sample_tree_w_pair_order(pairs_tensor, rng_i, rng_j):
     n_mut = pairs_tensor.shape[0]
     anc = np.full((n_mut+1,n_mut+1), -1, np.int8)
     anc[0,:] = 1
     anc[:,0] = 0
     np.fill_diagonal(anc,1)
     selection_probs = np.copy(pairs_tensor)
-    # for i in range(n_mut):
-    #     selection_probs[i,i,:] = -np.inf
-    # selection_probs[:,:,Models.cocluster] = -np.inf
-    # selection_probs[:,:,Models.garbage] = -np.inf
-    if order_by_certainty:
-        max_ps = np.max(selection_probs,axis=2)
-        rng_i, rng_j = np.unravel_index(np.argsort(-max_ps, axis=None),shape=(n_mut,n_mut))
-    else:
-        rng_i = np.zeros(n_mut*n_mut,dtype=np.int)
-        rng_j = np.zeros(n_mut*n_mut,dtype=np.int)
-        cnt = 0
-        for i in range(n_mut):
-            for j in range(n_mut):
-               rng_i[cnt] = i
-               rng_j[cnt] = j
-               cnt += 1 
+    selection_probs[range(n_mut),range(n_mut),Models.cocluster] = -np.inf
     samp_prob = 0
     for i,j in zip(rng_i, rng_j):
         if np.all(selection_probs[i,j,:] == np.NINF):
@@ -227,56 +193,61 @@ def _sample_tree_w_pair_order(pairs_tensor, order_by_certainty=False):
 
 def sample_trees(pairs_tensor, n_samples, order_by_certainty=True, parallel=None):
     #Only use the pairs_tensor which has been normalized ignoring cocluster and garbage models, since we do not want to select them.
-    assert np.all(pairs_tensor[:,:,Models.cocluster] == np.NINF)
+    n_muts = pairs_tensor.shape[0]
+    # assert np.all(pairs_tensor[:,:,Models.cocluster] == np.NINF)
     assert np.all(pairs_tensor[:,:,Models.garbage] == np.NINF)
-    assert np.all(pairs_tensor[range(n_muts),range(n_muts),:] == np.NINF)
     assert np.all(np.isclose(np.sum(np.exp(pairs_tensor),axis=2),1))
 
+    if order_by_certainty:
+        max_ps = np.max(pairs_tensor,axis=2)
+        rng_i, rng_j = np.unravel_index(np.argsort(-max_ps, axis=None),shape=(n_muts,n_muts))
+    else:
+        rngs = np.array([[i,j] for i in range(n_muts) for j in range(n_muts)])
+        rng_i, rng_j = rngs[:,0], rngs[:,1]
 
-    n_muts = pairs_tensor.shape[0]
-    trees = np.zeros((n_muts+1, n_muts+1, n_samples))
+    trees = np.zeros((n_samples, n_muts+1, n_muts+1))
     tree_probs = np.zeros(n_samples)
     if parallel is None:
         for i in range(n_samples):
-            trees[:,:,i], tree_probs[i] = _sample_tree_w_pair_order(pairs_tensor, order_by_certainty=order_by_certainty)
+            trees[i,:,:], tree_probs[i] = _sample_tree_w_pair_order(pairs_tensor, rng_i, rng_j)
     else:
         pool = multiprocessing.Pool(parallel)
         s = []
         for i in range(n_samples):
-            s.append(pool.apply_async(_sample_tree_w_pair_order, args=(pairs_tensor, order_by_certainty)))
+            s.append(pool.apply_async(_sample_tree_w_pair_order, args=(pairs_tensor, rng_i, rng_j)))
         pool.close()
         pool.join()
         for i in range(n_samples):
-            trees[:,:,i], tree_probs[i] = s[i].get()
+            trees[i,:,:], tree_probs[i] = s[i].get()
 
     return trees, tree_probs
 
 
 def main():
     #FOR DEBUGGING PURPOSES
-    import numpy as np
-    import sys, os
-    sys.path.append(os.path.abspath('../../lib'))
-    import pairs_tensor_constructor
+    # import numpy as np
+    # import sys, os
+    # sys.path.append(os.path.abspath('../../lib'))
+    # import pairs_tensor_constructor
 
-    from data_simulator_full_auto import generate_simulated_data
+    # from data_simulator_full_auto import generate_simulated_data
 
-    data, true_tree = generate_simulated_data(n_clust=50, 
-                                            n_cells=100, 
-                                            n_muts=50, 
-                                            FPR=0.001, 
-                                            ADO=0.1, 
-                                            cell_alpha=1, 
-                                            mut_alpha=1,
-                                            drange=1
-                                            )
-    adj_mat = true_tree[1]
+    # data, true_tree = generate_simulated_data(n_clust=50, 
+    #                                         n_cells=100, 
+    #                                         n_muts=50, 
+    #                                         FPR=0.001, 
+    #                                         ADO=0.1, 
+    #                                         cell_alpha=1, 
+    #                                         mut_alpha=1,
+    #                                         drange=1
+    #                                         )
+    # adj_mat = true_tree[1]
 
 
-    pairs_tensor = pairs_tensor_constructor.construct_pairs_tensor(data,0.001,0.1,1, verbose=False)
-    pairs_tensor = np.exp(pairs_tensor)
+    # pairs_tensor = pairs_tensor_constructor.construct_pairs_tensor(data,0.001,0.1,1, verbose=False)
+    # pairs_tensor = np.exp(pairs_tensor)
 
-    sample = _sample_tree(pairs_tensor)
+    # sample = _sample_tree(pairs_tensor)
 
     return
 
