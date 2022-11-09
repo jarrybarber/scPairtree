@@ -26,7 +26,7 @@ def _apply_errors(real_data,FPR,ADO):
     d_rng_i = DataRangeIdx.ref_hetvar_homvar_nodata #Just leave as this? Later on can just merge 3s into 0s and 2s into 1s if really want to use the other types, and then just have to make the data once.
     r_rng = DataRange[d_rng_i] #[0,1,2,3]
 
-    data = np.zeros(real_data.shape)
+    data = np.zeros(real_data.shape, dtype=int)
     ps_gt0 = [p_data_given_truth_and_errors(d,0,FPR,ADO,d_rng_i) for d in r_rng]
     ps_gt1 = [p_data_given_truth_and_errors(d,1,FPR,ADO,d_rng_i) for d in r_rng]
     data = data + np.multiply((real_data==0).astype(int), np.random.choice(r_rng, data.shape, p=ps_gt0))
@@ -53,7 +53,7 @@ def _generate_error_free_data(anc_mat, cell_assignments, mut_assignments):
     MA = np.eye(anc_mat.shape[0])[mut_assignments].T
 
     error_free_dat = MA.T @ anc_mat @ CA
-    return error_free_dat
+    return error_free_dat.astype(int)
 
 def _assign_to_subclones(n_assignments, n_clust, a=1):
     assert n_assignments >= n_clust
@@ -66,7 +66,7 @@ def _assign_to_subclones(n_assignments, n_clust, a=1):
 
 def _generate_tree_structure(n_clust):
     #All nodes are considered adjacent to themselves. Add one more cluster for the root node.
-    adj_mat = np.eye(n_clust+1)
+    adj_mat = np.eye(n_clust+1, dtype=int)
     #Set the first node to branch off the root node
     adj_mat[0,1] = 1
     #Iterate through the rest of the nodes. Either continue a chain with prob 3/4 or start a new chain with prob 1/4.

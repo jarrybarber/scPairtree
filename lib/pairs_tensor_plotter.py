@@ -10,10 +10,10 @@ def plot_raw_scores(tensor, show_fig=False, save_fig=True, outdir="", save_name 
     score_range = [np.min(tensor),np.max(tensor)]
     if np.isneginf(score_range[0]):
         score_range[0] = np.min(tensor[np.isfinite(tensor)])
-    cmap = plt.get_cmap("Reds",50)
+    cmap = plt.get_cmap("Reds",100)
     cmap.set_bad("grey")
 
-    plt.figure(figsize=(8,6))
+    plt.figure(figsize=(12,9))
     plt.subplot(231)
     plt.imshow(tensor[:,:,Models.A_B],vmin=score_range[0],vmax=score_range[1],cmap=cmap)
     plt.title("A-->B")

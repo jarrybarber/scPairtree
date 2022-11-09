@@ -36,6 +36,7 @@ def _this_logsumexp_axis0(V):
         out[i] = B + np.log(summed)
     return out
 
+# SLOWISH
 # @njit(cache=True)
 # def _calc_tree_llh(data, anc, FPR, ADO, dtype=DataRangeIdx.ref_var_nodata):
 #     #First, I need to calculate the number of true positives/negatives, and false positives/negatives for
@@ -65,20 +66,68 @@ def _this_logsumexp_axis0(V):
 #     tree_llh = np.sum(_this_logsumexp_axis0(cell_at_mut_contribution))
 #     return tree_llh
 
+# FASTER
+# @njit(cache=True)
+# def _calc_tree_llh(data,anc,fpr,ado,dtype):
+#     n_mut, n_cell = data.shape
 
+#     outer_sum = 0
+#     for i in range(n_cell):
+#         inner_sum = np.zeros(n_mut+1)
+#         for j in range(n_mut+1):
+#             for k in range(n_mut):
+#                 p_dga = p_data_given_truth_and_errors(data[k,i],anc[k+1,j],fpr[k],ado[k],dtype)
+#                 inner_sum[j] += np.log(p_dga)
+#         B = np.max(inner_sum)
+#         mid = np.log(np.sum(np.exp(inner_sum - B))) + B
+#         outer_sum += mid
+
+#     return outer_sum
+
+
+@njit(cache=True)
+def _get_breadth_first_traversal(adj,start_ind=0):
+
+    bst = [start_ind]
+    for i in range(adj.shape[0]):
+        for j in range(adj.shape[1]):
+            if bst[i] == j:
+                continue
+            if adj[bst[i],j] == 1:
+                bst.append(j)
+        
+    return bst
+
+# WOAH WAY FASTER!!!
 @njit(cache=True)
 def _calc_tree_llh(data,anc,fpr,ado,dtype):
     n_mut, n_cell = data.shape
+    n_node = n_mut + 1
+    adj = util.make_adj_from_anc(anc)
+    parents = util.convert_adjmatrix_to_parents(adj)
+    node_order = _get_breadth_first_traversal(adj)
+
+    p_dgas = np.zeros((4,2,n_mut))
+    for d in (0,1,3):
+        for t in (0,1):
+            for m in range(n_mut):
+                p_dgas[d,t,m] = np.log(p_data_given_truth_and_errors(d,t,fpr[m],ado[m],dtype))
 
     outer_sum = 0
     for i in range(n_cell):
-        inner_sum = np.zeros(n_mut+1)
-        for j in range(n_mut+1):
-            for k in range(n_mut):
-                p_dga = p_data_given_truth_and_errors(data[k,i],anc[k+1,j],fpr[k],ado[k],dtype)
-                inner_sum[j] += np.log(p_dga)
-        B = np.max(inner_sum)
-        mid = np.log(np.sum(np.exp(inner_sum - B))) + B
+        j = 0 #Consider the cell being attached to the root first
+        score_cell_at_nodes = np.zeros(n_node)
+        for k in range(n_mut):
+            p_dga = p_dgas[data[k,i],anc[k+1,j],k]
+            score_cell_at_nodes[j] += p_dga
+        for j in node_order[1:]:
+            parent = parents[j-1]
+            parent_cont_to_sub = p_dgas[data[j-1,i],0,j-1]
+            this_cont_to_add   = p_dgas[data[j-1,i],1,j-1]
+            score_cell_at_nodes[j] = score_cell_at_nodes[parent] - parent_cont_to_sub + this_cont_to_add
+        score_cell_at_nodes = score_cell_at_nodes[1:]
+        B = np.max(score_cell_at_nodes)
+        mid = np.log(np.sum(np.exp(score_cell_at_nodes - B))) + B
         outer_sum += mid
 
     return outer_sum
@@ -808,7 +857,6 @@ def sample_trees(sc_data, pairs_tensor, FPR, ADO, trees_per_chain, burnin, nchai
         n_sampled = 0
 
         conv_stat = []
-        checking_times = []
         with progressbar(total=total, desc='Sampling trees', unit='tree', dynamic_ncols=True) as pbar:
             with concurrent.futures.ProcessPoolExecutor(max_workers=parallel, mp_context=multiprocessing.get_context("spawn")) as ex:
                 for C in range(nchains):
@@ -877,15 +925,12 @@ def sample_trees(sc_data, pairs_tensor, FPR, ADO, trees_per_chain, burnin, nchai
                     
                     #Using the chain means and variances, determine if the chains have converged onto the posterior
                     if (convergence_options is not None) & (n_sampled*(1-burnin)*thinned_frac >= nchains*convergence_options["min_samples"]) & (not convergence_options["signal"].is_set()):
-                        s = time.time()
                         gr_stat = gelman_rubin_convergence(chain_vars, chain_means, n_sampled*burnin, nchains)
                         conv_stat.append(gr_stat)
                         converged = np.all(np.abs(1. - gr_stat) < convergence_options["threshold"])
                         if converged:
                             print("Chains have reached convergence! Stopping chains early.")
                             convergence_options["signal"].set()
-                        checking_times.append(time.time() - s)
-        print(np.sum(checking_times))
         results = [J.result() for J in jobs]
     else:
         results = []
