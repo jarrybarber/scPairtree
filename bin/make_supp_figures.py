@@ -8,6 +8,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
 from result_serializer import Results
 from pairs_tensor_plotter import plot_best_model
 from tree_plotter import plot_tree
+from tree_sampler import _calc_tree_llh
+from util import make_ancestral_from_adj
 
 def _parse_args():
     parser = argparse.ArgumentParser(
@@ -18,6 +20,8 @@ def _parse_args():
         help='Integer seed used for pseudo-random number generator. Running scPairtree with the same seed on the same inputs will produce exactly the same result.')
     parser.add_argument('--outdir', dest='outdir', default=None,
         help='Directory in which to save the figures.')
+    parser.add_argument('--act-tree-adj', dest='act_tree_adj',default=None,
+        help='(Optional) File containing the adjacency matrix of the actual tree, if this tree is known.')
     
     parser.add_argument('results_fn')
     args = parser.parse_args()
@@ -43,13 +47,21 @@ def _plot_err_est(fprs,ados,gene_names,outdir):
     return
 
 
-def _plot_chain_llhs(llhs,n_chains,outdir):
+def _plot_chain_llhs(llhs,n_chains,outdir,act_tree_llh): 
+    
     plt.figure(figsize=(4*n_chains,8))
     chain_lens = int(len(llhs)/n_chains)
-    minmax = (np.min(llhs), np.max(llhs))
+    rng = np.max(llhs) - np.min(llhs)
+    if act_tree_llh is not None:
+        minmax = ( -0.05*rng + np.min(np.append(llhs,act_tree_llh)), 0.05*rng + np.max(np.append(llhs,act_tree_llh)))
+    else:
+        minmax = ( -0.05*rng + np.min(llhs), 0.05*rng + np.max(llhs))
+    
     for i in range(n_chains):
         plt.subplot(1,n_chains,i+1)
         plt.plot(llhs[i*chain_lens:(i+1)*chain_lens])
+        if act_tree_llh is not None:
+            plt.plot([0, chain_lens],[act_tree_llh,act_tree_llh], 'r--')
         plt.ylim(minmax)
         plt.title("Chain {}".format(str(i)))
     
@@ -82,10 +94,18 @@ def main():
     best_tree_ind = np.argmax(llhs)
     best_tree_adj = adjs[best_tree_ind]
 
+    if args.act_tree_adj is not None:
+        act_tree_adj = np.loadtxt(args.act_tree_adj, dtype=np.int16)
+        act_tree_anc = make_ancestral_from_adj(act_tree_adj)
+        act_tree_llh = _calc_tree_llh(data,act_tree_anc,est_FPRs,est_ADOs,scp_args['d_rng_i'])
+    else:
+        act_tree_adj = None
+        act_tree_anc = None
+        act_tree_llh = None
 
     plot_best_model(pairs_tensor, outdir=args.outdir, snv_ids=gene_names, save_name="pairs_matrix.png")
     _plot_err_est(est_FPRs,est_ADOs,gene_names,args.outdir)
-    _plot_chain_llhs(llhs,scp_args['tree_chains'],args.outdir)
+    _plot_chain_llhs(llhs,scp_args['tree_chains'],args.outdir,act_tree_llh)
     fig = plot_tree(best_tree_adj, node_ids=gene_names)
     fig.savefig(os.path.join(args.outdir,"Highest llh tree"))
 

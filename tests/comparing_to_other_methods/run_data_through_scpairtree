@@ -13,26 +13,51 @@ function run_all_sims {
   mut_alpha=1
   d_rng_id=1
   n_rep=8
-  thin_frac=0.2
-  burnin=0.5
+  thin_frac=0.25
+  burnin=0.75
+
+  #convergence parameters
+  conv_thresh=0.1
+  conv_min_samp=1000 #per chain
+  check_conv_every=100
 
   for M in 10 20 50 100; do
-  for C in 100 500 1000 ; do
-  for sim in 0 1 2 3 4 5 6 7 8 9 ; do
+  for C in 100 500 1000; do
+  # for M in 150 200; do
+  # for C in 500 1000; do
+  for sim in 0 1 2 3 4 5 6 7 8 9; do
   for FPR in 0.001; do
   for ADO in 0.3; do
+
+  # for M in 20; do
+  # for C in 500 1000; do # 500 1000; do
+  # for sim in 0 1 2 3 4 5 6 7 8 9; do
+  # for FPR in 0.001; do
+  # for ADO in 0.3; do
+
     echo $M $C $sim
     seed=`expr 1000 + $sim`
     fn=m${M}_c${C}_fp${FPR}_ad${ADO}_ca${cell_alpha}_ma${mut_alpha}_dr${d_rng_id}_seed${seed}
     data_fn=$SIMDIR/$fn.data
     out_fn=$RESDIR/$fn
-
-    # burnin=`expr 0.5 + $M/250`
-    # n_samp=`expr 20 \* $M`
-    tpc=`expr $M \* 1000`
-    # bsub -n8 -R rusage[mem=8] -W 72:00 \time -o $out_fn.time -f "Runtime: %E\n" python $BINDIR/sc_pairtree.py $data_fn $out_fn --seed $seed --data-range 1 --parallel $n_rep --trees-per-chain $tpc --burnin $burnin --thinned-frac $thin_frac
     fig_fn=$RESDIR/figs/$fn/
-    python $BINDIR/make_supp_figures.py $out_fn --outdir $fig_fn --seed $seed
+    act_adj_fn=$SIMDIR/$fn.adj
+
+    tpc=`expr $M \* 1000`
+    # bsub -n10 -R rusage[mem=32] -W 120:00 \
+      \time -o $out_fn.time -f "Runtime: %E\n" \
+        python $BINDIR/sc_pairtree.py $data_fn \
+                                          $out_fn \
+                                          --seed $seed \
+                                          --data-range 1 \
+                                          --parallel $n_rep \
+                                          --trees-per-chain $tpc \
+                                          --burnin $burnin \
+                                          --thinned-frac $thin_frac \
+                                          --convergence-threshold $conv_thresh \
+                                          --convergence-min-nsamples $conv_min_samp \
+                                          --check-convergence-every $check_conv_every
+    python $BINDIR/make_supp_figures.py $out_fn --outdir $fig_fn --seed $seed --act-tree-adj $act_adj_fn
   done
   done
   done

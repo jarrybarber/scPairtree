@@ -156,9 +156,9 @@ def main():
         args.parallel, args.tree_chains, args.seed, args.d_rng_i, convergence_options = _get_default_args(args) 
         res.add("scp_args",vars(args))
     
-    #Leaving this here temporarily so I can update some zip files lazily
-    args.parallel, args.tree_chains, args.seed, args.d_rng_i, convergence_options = _get_default_args(args) 
-    res.add("scp_args",vars(args))
+    # #Leaving this here temporarily so I can update some zip files lazily
+    # args.parallel, args.tree_chains, args.seed, args.d_rng_i, convergence_options = _get_default_args(args) 
+    # res.add("scp_args",vars(args))
 
     _init_hyperparams(args)
     np.random.seed(args.seed)
@@ -197,8 +197,6 @@ def main():
         print("Constructing pairs tensor...")
         s = time.time()
         pairs_tensor = construct_pairs_tensor(data, est_FPRs, est_ADOs, d_rng_i=args.d_rng_i, scale_integrand=True)
-        pairs_tensor = normalize_and_unlog_pairs_tensor(pairs_tensor)
-        pairs_tensor = complete_tensor(pairs_tensor)
         res.add("pairs_tensor_runtime", time.time()-s)
         res.add("pairs_tensor", pairs_tensor)
         res.save()

@@ -7,8 +7,10 @@ from data_simulator_full_auto import generate_simulated_data
 
 n_sim_reps = 10
 
-n_muts = [10, 20, 50, 100]
-n_cells = [100, 500, 1000]
+# n_muts = [10, 20, 50, 100]
+# n_cells = [100, 500, 1000]
+n_muts = [150, 200]
+n_cells = [500, 1000]
 FPR = 0.001
 ADO = 0.3
 cell_alpha = 1

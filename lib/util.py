@@ -30,7 +30,7 @@ def load_data(fn, data_dir=None):
     
     if data_dir is not None:
         fn = os.path.join(data_dir,fn) 
-    data = np.loadtxt(fn)
+    data = np.loadtxt(fn, dtype=np.int16)
 
     if os.path.isfile(fn + ".mutnames"):
         mut_names = np.loadtxt(fn + ".mutnames",dtype=str)
