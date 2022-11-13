@@ -6,8 +6,9 @@ import queue
 
 from common import Models, NUM_MODELS
 from util import logsumexp
-from util import make_adj_from_anc, compute_node_relations
+from util import compute_node_relations, convert_ancmatrix_to_parents, convert_parents_to_adjmatrix, convert_adjmatrix_to_ancmatrix
 from progressbar import progressbar
+from tree_sampler import _calc_tree_llh
 
 
 def calc_posterior_norm_constant(llhs, samp_probs):
@@ -38,13 +39,13 @@ def calc_importance_sampling_matrix(samples, ps, gs):
 @numba.njit
 def calc_importance_sampling_pairs_tensor(samples, ps, gs):
     n_samp = samples.shape[0]
-    n_mut = samples.shape[1] - 1 
+    n_mut = samples.shape[1]
     res = np.zeros((n_mut, n_mut, NUM_MODELS))
     ratios = ps - gs
     ratios = np.exp(ratios - np.max(ratios))
     for s in range(n_samp):
-        sample = samples[s,:,:]
-        adj = make_adj_from_anc(sample)
+        sample = samples[s,:]
+        adj = convert_parents_to_adjmatrix(sample)
         node_rels = compute_node_relations(adj)
         for i in range(n_mut):
             for j in range(n_mut):
@@ -55,20 +56,37 @@ def calc_importance_sampling_pairs_tensor(samples, ps, gs):
     return res
 
 
-# @numba.njit(cache=True)
-# def _get_anc_vals_from_rel(rel):
-#     if rel == Models.A_B:
-#         a,b = 1,0
-#     elif rel == Models.B_A:
-#         a,b = 0,1
-#     elif rel == Models.diff_branches:
-#         a,b = 0,0
-#     return a,b
+def calc_some_importance_sampling_values(samples, samp_probs, data, fprs, ados):
+    n_samples = samples.shape[0]
+    n_mut = samples.shape[1]
+    llhs = np.zeros(n_samples)
+    for i in range(n_samples):
+        if i % int(n_samples/20) == 0:
+            print(i, "/", n_samples)
+        adj = convert_parents_to_adjmatrix(samples[i,:])
+        anc = convert_adjmatrix_to_ancmatrix(adj)
+        llhs[i] = _calc_tree_llh(data, anc, fprs, ados, 1)
+        
+    ratios = llhs - samp_probs
+    ratios = np.exp(ratios - np.max(ratios))
 
+    IS_anc_mat = np.zeros((n_mut, n_mut))
+    IS_adj_mat = np.zeros((n_mut, n_mut))
+    for i in range(n_samples):
+        if i % int(n_samples/20) == 0:
+            print(i, "/", n_samples)
+        adj = convert_parents_to_adjmatrix(samples[i,:])
+        anc = convert_adjmatrix_to_ancmatrix(adj)
+        
+        IS_adj_mat += adj*ratios[i]
+        IS_anc_mat += anc*ratios[i]
+    
+    return llhs, IS_adj_mat, IS_anc_mat
+
+    
 
 @numba.njit(cache=True)
 def _propogate_rules(anc,i,j,rel,model_probs):
-    # this will be the tricky part:
     # If set i branched to j, then:
     #  - All nodes desended from i are branched to all nodes desended from j
     #  - All nodes dec(i) cannot be anc to all nodes anc(j)
@@ -79,7 +97,6 @@ def _propogate_rules(anc,i,j,rel,model_probs):
     #  - All nodes anc(i) cannot be branched to all nodes anc(j)
     # If set i desendant to j, then equiv to set j ancestral i
 
-    # a,b = _get_anc_vals_from_rel(rel)
     if rel == Models.A_B:
         a,b = 1,0
     elif rel == Models.B_A:
@@ -119,16 +136,10 @@ def _propogate_rules(anc,i,j,rel,model_probs):
                  #i and k must not be branched
                 model_probs[i,k,Models.diff_branches]=-np.inf
                 model_probs[k,i,Models.diff_branches]=-np.inf
-                # if np.sum(model_probs[j,k,:]==np.NINF)==4:
-                #     rel = np.argwhere(model_probs[j,k,:].flatten() > -np.inf).flatten()[0]
-                #     _propogate_rules(anc,j,k,rel,model_probs)
             elif anc[j+1,k+1] == 0 and anc[k+1,j+1] == 0: # j brn k
                 #k must not be anc i
                 model_probs[i,k,Models.B_A]=-np.inf 
                 model_probs[k,i,Models.A_B]=-np.inf
-                # if np.sum(model_probs[j,k,:]==np.NINF)==4:
-                #     rel = np.argwhere(model_probs[j,k,:].flatten() > -np.inf).flatten()[0]
-                #     _propogate_rules(anc,j,k,rel,model_probs)
             
             if np.sum(model_probs[i,k,:]==np.NINF)==4:
                 rel = np.argwhere(model_probs[i,k,:].flatten() > -np.inf).flatten()[0]
@@ -159,16 +170,10 @@ def _propogate_rules(anc,i,j,rel,model_probs):
                 #j cannot be anc k
                 model_probs[j,k,Models.A_B]=-np.inf 
                 model_probs[k,j,Models.B_A]=-np.inf
-                # if np.sum(model_probs[j,k,:]==np.NINF)==4:
-                #     rel = np.argwhere(model_probs[j,k,:].flatten() > -np.inf).flatten()[0]
-                #     _propogate_rules(anc,j,k,rel,model_probs)
             elif anc[j+1,k+1] == 0 and anc[k+1,j+1] == 1: # j dec k
                 #i must not be anc k
                 model_probs[i,k,Models.A_B]=-np.inf 
-                model_probs[k,i,Models.B_A]=-np.inf 
-                # if np.sum(model_probs[i,k,:]==np.NINF)==4:
-                #     rel = np.argwhere(model_probs[i,k,:].flatten() > -np.inf).flatten()[0]
-                #     _propogate_rules(anc,i,k,rel,model_probs)
+                model_probs[k,i,Models.B_A]=-np.inf
             
             if np.sum(model_probs[i,k,:]==np.NINF)==4:
                 rel = np.argwhere(model_probs[i,k,:].flatten() > -np.inf).flatten()[0]
@@ -180,7 +185,8 @@ def _propogate_rules(anc,i,j,rel,model_probs):
 
 
 @numba.njit(cache=True)
-def _sample_rel(selection_probs, samp_prob):
+def _sample_rel(selection_probs):
+    #With numba, this is faster than calling the commented out line below
     max_sp = -np.inf
     for rel in range(NUM_MODELS):
         if selection_probs[rel] > max_sp:
@@ -188,6 +194,7 @@ def _sample_rel(selection_probs, samp_prob):
     norm_sp = np.exp(selection_probs - max_sp)
     # norm_sp = np.exp(selection_probs - np.max(selection_probs))
 
+    #With numba, this is faster than calling the commented out line below
     sum_nsp = 0
     for rel in range(NUM_MODELS):
         sum_nsp += norm_sp[rel]
@@ -196,12 +203,15 @@ def _sample_rel(selection_probs, samp_prob):
 
     p = np.random.rand()
     s = 0
+    sel_prob = 0
     for rel in range(NUM_MODELS):
-        if p < s + norm_sp[rel]:
-            samp_prob += np.log(norm_sp[rel])
+        this_rel_p = norm_sp[rel]
+        if p < s + this_rel_p:
+            sel_prob += np.log(this_rel_p)
             break
-        s = s + norm_sp[rel]
-    return rel, samp_prob
+        s = s + this_rel_p
+
+    return rel, sel_prob
 
 
 numba.njit(cache=True)
@@ -213,18 +223,18 @@ def _sample_tree(pairs_tensor, rng_i, rng_j, status=None):
     for i in range(n_mut+1):
         anc[i,i] = 1
     selection_probs = np.copy(pairs_tensor)
-    # selection_probs[range(n_mut),range(n_mut),Models.cocluster] = -np.inf
     samp_prob = 0
     for i,j in zip(rng_i, rng_j):
         if np.all(selection_probs[i,j,:] == np.NINF):
             continue
-        rel, samp_prob = _sample_rel(selection_probs[i,j,:], samp_prob)
+        rel, sel_prob = _sample_rel(selection_probs[i,j,:])
+        samp_prob += sel_prob
         _propogate_rules(anc,i,j,rel,selection_probs)
 
     if status is not None:
         status.put(True)
 
-    return anc, samp_prob
+    return convert_ancmatrix_to_parents(anc), samp_prob
 
 
 def sample_trees(pairs_tensor, n_samples, order_by_certainty=True, parallel=None):
@@ -235,21 +245,33 @@ def sample_trees(pairs_tensor, n_samples, order_by_certainty=True, parallel=None
     assert np.all(np.isclose(np.sum(np.exp(pairs_tensor),axis=2),1))
 
     if order_by_certainty:
+        #If we order the mutation pairs by our certainty in any one of the possible relationships
+        #then we sample these mutations first and so there is little chance of these high-probability
+        #relationships being forceably removed through rule propogation during selection of lower
+        #certainly mutation pairs. I.e., this will result in more high-confidence trees being sampled.
         max_ps = np.max(pairs_tensor,axis=2)
         rng_i, rng_j = np.unravel_index(np.argsort(-max_ps, axis=None),shape=(n_mut,n_mut))
     else:
+        #However, we may be worried about overconstraining the tree search space, so we can use an 
+        #arbitrary mutation pair ordering set here.
         rngs = np.array([[i,j] for i in range(n_mut) for j in range(n_mut)])
         rng_i, rng_j = rngs[:,0], rngs[:,1]
     
+    #Let's try removing the indices which are ultimately duplicates
+    # to_del = rng_i<rng_j
+    # rng_i = np.delete(rng_i,to_del)
+    # rng_j = np.delete(rng_j,to_del)
+
     selection_probs = np.copy(pairs_tensor)
     selection_probs[range(n_mut),range(n_mut),Models.cocluster] = -np.inf
 
-    trees = np.zeros((n_samples, n_mut+1, n_mut+1), dtype=int)
+    trees = np.zeros((n_samples, n_mut), dtype=int)
     tree_probs = np.zeros(n_samples)
+    
     if parallel is None:
         with progressbar(total=n_samples, desc='Sampling trees', unit='tree', dynamic_ncols=True) as pbar:
             for i in range(n_samples):
-                trees[i,:,:], tree_probs[i] = _sample_tree(selection_probs, rng_i, rng_j)
+                trees[i,:], tree_probs[i] = _sample_tree(selection_probs, rng_i, rng_j)
                 pbar.update()
     else:
         manager = multiprocessing.Manager()
@@ -272,39 +294,14 @@ def sample_trees(pairs_tensor, n_samples, order_by_certainty=True, parallel=None
                     pbar.update()
                 except queue.Empty:
                     time.sleep(0.5)
-                    # pass
         
         pool.join()
         for i in range(n_samples):
-            trees[i,:,:], tree_probs[i] = s[i].get()
+            trees[i,:], tree_probs[i] = s[i].get()
     return trees, tree_probs
 
 
 def main():
-    #FOR DEBUGGING PURPOSES
-    # import numpy as np
-    # import sys, os
-    # sys.path.append(os.path.abspath('../../lib'))
-    # import pairs_tensor_constructor
-
-    # from data_simulator_full_auto import generate_simulated_data
-
-    # data, true_tree = generate_simulated_data(n_clust=50, 
-    #                                         n_cells=100, 
-    #                                         n_muts=50, 
-    #                                         FPR=0.001, 
-    #                                         ADO=0.1, 
-    #                                         cell_alpha=1, 
-    #                                         mut_alpha=1,
-    #                                         drange=1
-    #                                         )
-    # adj_mat = true_tree[1]
-
-
-    # pairs_tensor = pairs_tensor_constructor.construct_pairs_tensor(data,0.001,0.1,1, verbose=False)
-    # pairs_tensor = np.exp(pairs_tensor)
-
-    # sample = _sample_tree(pairs_tensor)
 
     return
 

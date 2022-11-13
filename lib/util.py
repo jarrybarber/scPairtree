@@ -75,30 +75,122 @@ def determine_pairwise_occurance_counts(data,pair_val):
 
     return count_mat.astype(int)
 
+@njit(cache=True)
+def convert_adjmatrix_to_ancmatrix(adj, check_validity=False):
+    #Note: taken from Jeff's util code.
+    K = len(adj)
+    root = 0
+
+    if check_validity:
+        # By default, disable checks to improve performance.
+        assert np.all(1 == np.diag(adj))
+        expected_sum = 2 * np.ones(K)
+        expected_sum[root] = 1
+        assert np.array_equal(expected_sum, np.sum(adj, axis=0))
+
+    Z = np.copy(adj)
+    # np.fill_diagonal(Z, 0)
+    for i in range(Z.shape[0]):
+        Z[i,i] = 0
+        
+    stack = [root]
+    while len(stack) > 0:
+        P = stack.pop()
+        C = np.flatnonzero(Z[P])
+        if len(C) == 0:
+            continue
+        # Set ancestors of `C` to those of their parent `P`.
+        C_anc = np.copy(Z[:,P])
+        C_anc[P] = 1
+        # Turn `C_anc` into column vector.
+        Z[:,C] = np.expand_dims(C_anc, 1)
+        stack += list(C)
+    
+    # np.fill_diagonal(Z, 1)
+    for i in range(Z.shape[0]):
+        Z[i,i] = 1
+        
+    if check_validity:
+        assert np.array_equal(Z[root], np.ones(K))
+    return Z
+
+
+@njit(cache=True)
+def convert_ancmatrix_to_adjmatrix(anc):
+
+    this_anc = np.copy(anc)
+    for i in range(this_anc.shape[0]):
+        this_anc[i,i] = 0
+    
+    adj = np.zeros(this_anc.shape, dtype=np.int8)
+    for i in range(adj.shape[0]):
+        adj[i,i] = 1
+    
+    n_clust = len(this_anc)
+    for child in range(1,n_clust):
+        is_anc_to_child = np.argwhere(this_anc[:,child]).flatten()
+        par = 0
+        for j in is_anc_to_child:
+            is_dec_cur_par = this_anc[par,j]
+            if is_dec_cur_par:
+                par = j
+        adj[par,child] = 1
+    return adj
+
+
+@njit(cache=True)
+def convert_ancmatrix_to_parents(anc):
+    n_clust = len(anc)
+    this_anc = np.copy(anc)
+    for i in range(n_clust):
+        this_anc[i,i] = 0
+    
+    parents = np.zeros(n_clust-1, dtype=np.int32)
+    for child in range(1,n_clust):
+        is_anc_to_child = np.flatnonzero(this_anc[:,child])# np.argwhere(this_anc[:,child]).flatten()
+        parent = 0
+        for j in is_anc_to_child:
+            is_dec_cur_par = this_anc[parent,j]
+            if is_dec_cur_par:
+                parent = j
+        parents[child-1] = parent
+    return parents
+
+
+@njit(cache=True)
+def convert_parents_to_ancmatrix(parents):
+    adj = convert_parents_to_adjmatrix(parents)
+    anc = convert_adjmatrix_to_ancmatrix(adj)
+    return anc
+
+
 #Taken from Jeff's Pairtree
 @njit(cache=True)
 def convert_parents_to_adjmatrix(parents):
-  K = len(parents) + 1
-  adjm = np.eye(K, dtype=np.int8)
-  adjm[parents,np.arange(1, K)] = 1
-  return adjm
+    K = len(parents) + 1
+    adjm = np.eye(K, dtype=np.int8)
+    for i,parent in enumerate(parents):
+        adjm[parent,i+1] = 1
+    return adjm
+
 
 #Taken from Jeff's Pairtree
 @njit(cache=True)
 def convert_adjmatrix_to_parents(adj):
-  adj = np.copy(adj)
-  np.fill_diagonal(adj, 0)
-  parents = np.zeros(adj.shape[1]-1, dtype=np.int32)
-  for i in range(1,adj.shape[1]):
-    parents[i-1] = find_first(1,adj[:,i])
-  return parents#np.argmax(adj[:,1:], axis=0)
+    adj = np.copy(adj)
+    np.fill_diagonal(adj, 0)
+    parents = np.zeros(adj.shape[1]-1, dtype=np.int32)
+    for i in range(1,adj.shape[1]):
+        parents[i-1] = find_first(1,adj[:,i])
+    return parents#np.argmax(adj[:,1:], axis=0)
+
 
 @njit(cache=True)
 def compute_node_relations(adj, check_validity=False):
-  #Note: adapted from Jeff's util code.
+    #Note: taken from Jeff's util code.
     #May make sense to move somewhere else... Perhaps some tree or pairs tensor util.
     K = len(adj)
-    anc = make_ancestral_from_adj(adj, check_validity)
+    anc = convert_adjmatrix_to_ancmatrix(adj, check_validity)
     # np.fill_diagonal(anc, 0)
     for i in range(anc.shape[0]): #better for numba
         anc[i,i] = 0
@@ -110,8 +202,8 @@ def compute_node_relations(adj, check_validity=False):
                 R[i,j] = Models.A_B
             elif anc[j,i] == 1:
                 R[i,j] = Models.B_A
-    # np.fill_diagonal(R, Models.cocluster)
-    for i in range(K): #better for numba
+                
+    for i in range(K):
         R[i,i] = Models.cocluster
 
     if check_validity:
@@ -152,74 +244,6 @@ def find_first(item, vec):
             return i
     return -1
 
-
-@njit(cache=True)
-def make_ancestral_from_adj(adj, check_validity=False):
-    #Note: taken from Jeff's util code.
-    K = len(adj)
-    root = 0
-
-    if check_validity:
-        # By default, disable checks to improve performance.
-        assert np.all(1 == np.diag(adj))
-        expected_sum = 2 * np.ones(K)
-        expected_sum[root] = 1
-        assert np.array_equal(expected_sum, np.sum(adj, axis=0))
-
-    Z = np.copy(adj)
-    # np.fill_diagonal(Z, 0)
-    for i in range(Z.shape[0]):
-        Z[i,i] = 0
-        
-    stack = [root]
-    while len(stack) > 0:
-        P = stack.pop()
-        C = np.flatnonzero(Z[P])
-        if len(C) == 0:
-            continue
-        # Set ancestors of `C` to those of their parent `P`.
-        C_anc = np.copy(Z[:,P])
-        C_anc[P] = 1
-        # Turn `C_anc` into column vector.
-        Z[:,C] = np.expand_dims(C_anc, 1)
-        stack += list(C)
-    
-    # np.fill_diagonal(Z, 1)
-    for i in range(Z.shape[0]):
-        Z[i,i] = 1
-        
-    if check_validity:
-        assert np.array_equal(Z[root], np.ones(K))
-    return Z
-
-
-@njit(cache=True)
-def compute_node_relations(adj, check_validity=False):
-    #Note: taken from Jeff's util code.
-    #May make sense to move somewhere else... Perhaps some tree or pairs tensor util.
-    K = len(adj)
-    anc = make_ancestral_from_adj(adj, check_validity)
-    # np.fill_diagonal(anc, 0)
-    for i in range(anc.shape[0]): #better for numba
-        anc[i,i] = 0
-
-    R = np.full((K, K), Models.diff_branches, dtype=np.int8)
-    for i in range(K):
-        for j in range(K):
-            if anc[i,j] == 1:
-                R[i,j] = Models.A_B
-            elif anc[j,i] == 1:
-                R[i,j] = Models.B_A
-            # R[i][anc[i]   == 1] = Models.A_B
-            # R[i][anc[:,i] == 1] = Models.B_A
-    # np.fill_diagonal(R, Models.cocluster)
-    for i in range(K): #better for numba
-        R[i,i] = Models.cocluster
-
-    if check_validity:
-        assert np.all(R[0]   == Models.A_B)
-        assert np.all(R[:,0] == Models.B_A)
-    return R
 
 def remove_rowcol(arr, indices):
     #NOTE: taken from Jeff's util code
@@ -271,44 +295,3 @@ def logsumexp(V, axis=None):
       B = np.ones(summed.shape)
     log_sum = B + np.log(summed)
     return log_sum
-
-@njit(cache=True)
-def make_adj_from_anc(anc):
-
-    this_anc = np.copy(anc)
-    for i in range(this_anc.shape[0]):
-        this_anc[i,i] = 0
-    
-    adj = np.zeros(this_anc.shape, dtype=np.int8)
-    for i in range(adj.shape[0]):
-        adj[i,i] = 1
-    
-    n_clust = len(this_anc)
-    for child in range(1,n_clust):
-        is_anc_to_child = np.argwhere(this_anc[:,child]).flatten()
-        par = 0
-        for j in is_anc_to_child:
-            is_dec_cur_par = this_anc[par,j]
-            if is_dec_cur_par:
-                par = j
-        adj[par,child] = 1
-    return adj
-
-
-@njit(cache=True)
-def make_parents_vec_from_anc(anc):
-    this_anc = np.copy(anc)
-    for i in range(this_anc.shape[0]):
-        this_anc[i,i] = 0
-    
-    n_clust = len(this_anc)
-    parents = np.zeros(n_clust-1, dtype=np.int32)
-    for child in range(1,n_clust):
-        is_anc_to_child = np.argwhere(this_anc[:,child]).flatten()
-        parent = 0
-        for j in is_anc_to_child:
-            is_dec_cur_par = this_anc[parent,j]
-            if is_dec_cur_par:
-                parent = j
-        parents[child] = parent
-    return parents
