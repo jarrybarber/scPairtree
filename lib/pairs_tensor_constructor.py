@@ -31,13 +31,13 @@ def _get_model_params(model, d_rng_i):
     if model==Models.A_B:
         to_integrate = _2d_integrand
         to_min       = _2d_tomin
-        x0s = [[x,y] for x in np.linspace(0.01,0.99,5) for y in np.linspace(0.01,0.99,5) if y<=x] #minimization starting point
+        x0s = [[x,y] for x in np.linspace(0.1,0.9,5) for y in np.linspace(0.1,0.9,5) if y<x] #minimization starting point
         L = lambda x: x #Integration lower bound
         U = lambda x: 1 #Integration upper bound
     elif model==Models.B_A:
         to_integrate = _2d_integrand
         to_min       = _2d_tomin
-        x0s = [[x,y] for x in np.linspace(0.01,0.99,5) for y in np.linspace(0.01,0.99,5) if y>=x]
+        x0s = [[x,y] for x in np.linspace(0.1,0.9,5) for y in np.linspace(0.1,0.9,5) if y>x]
         L = lambda x: 0
         U = lambda x: x
     elif model==Models.cocluster:
@@ -49,13 +49,13 @@ def _get_model_params(model, d_rng_i):
     elif model==Models.diff_branches:
         to_integrate = _2d_integrand
         to_min       = _2d_tomin
-        x0s = [[x,y] for x in np.linspace(0.01,0.99,5) for y in np.linspace(0.01,0.99,5) if (x+y)<=1]
+        x0s = [[x,y] for x in np.linspace(0.1,0.9,5) for y in np.linspace(0.1,0.9,5) if (x+y)<1]
         L = lambda x: 0
         U = lambda x: 1-x
     elif model==Models.garbage:
         to_integrate = _2d_integrand
         to_min       = _2d_tomin
-        x0s = [[x,y] for x in np.linspace(0.01,0.99,5) for y in np.linspace(0.01,0.99,5)]
+        x0s = [[x,y] for x in np.linspace(0.1,0.9,5) for y in np.linspace(0.1,0.9,5)]
         L = lambda x: 0
         U = lambda x: 1
     return to_integrate, to_min, x0s, L, U
@@ -74,6 +74,7 @@ def _calc_relationship_posterior(model, pairwise_occurances, fprs, ados, scale_i
         x0 = x0s[np.argmin([to_min(x, model, pairwise_occurances[:,:], fprs[0], fprs[1], ados[0], ados[1], d_rng_i) for x in x0s])]
         min_res = minimize(to_min, x0, method="Nelder-Mead", bounds=((0,1),(0,1)), args = (model, pairwise_occurances[:,:], fprs[0], fprs[1], ados[0], ados[1], d_rng_i))
         scale = -min_res['fun']
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         if model==Models.cocluster:
@@ -81,6 +82,26 @@ def _calc_relationship_posterior(model, pairwise_occurances, fprs, ados, scale_i
         else:
             score = dblquad(to_integrate, 0, 1, L, U, args=(model, pairwise_occurances[:,:], fprs[0], fprs[1], ados[0], ados[1], d_rng_i, scale),epsabs=0,epsrel=quad_tol)
     post = np.log(score[0]) + scale
+
+    if np.isinf(scale):
+        print("The scale is inf...")
+        print("scale =", scale)
+        print("min_f_x =", min_res['x'])
+        print("score =", score[0], np.log(score[0]))
+    if np.isinf(np.log(score[0])):
+        print("The score is inf...")
+        print("scale =", scale)
+        print("min_f_x =", min_res['x'])
+        print("score =", score[0], np.log(score[0]))
+        
+        print("min fun args:")
+        print("x0 =", x0)
+        print("model =", model)
+        print("pairwise_occurances =", pairwise_occurances[:,:])
+        print("fprs =", fprs[0], fprs[1])
+        print("ados =", ados[0], ados[1])
+        print("d_rng_i =", d_rng_i)
+
     return post
 
 
@@ -104,6 +125,15 @@ def _complete_tensor(scores):
 
 
 def _normalize_pairs_tensor(pairs_tensor, ignore_coclust=False, ignore_garbage=True):
+    if not np.all(pairs_tensor<=0):
+        print("min, max of pairs tensor:", np.nanmin(pairs_tensor), np.nanmax(pairs_tensor))
+        print("n_neginf:", np.sum(np.isneginf(pairs_tensor)))
+        print("n_posinf:", np.sum(np.isposinf(pairs_tensor)))
+        print("n_nan:",  np.sum(np.isnan(pairs_tensor)))
+        print("n_0:",  np.sum(pairs_tensor==0))
+        print("n_1:",  np.sum(pairs_tensor==1))
+        np.save("broken_pairs_tensor", pairs_tensor, fix_imports=False)
+
     assert np.all(pairs_tensor<=0) #I.e., is in log space
 
     n_mut = len(pairs_tensor)

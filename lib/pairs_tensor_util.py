@@ -198,7 +198,7 @@ def _log_model_posterior(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b,
     
     return log_post
 
-def log_model_posterior(model,pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i):
+def log_model_posterior(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i):
     # d_set=set of possible d values. Note that this can be either (0,1), [(0,1,3)] or (0,1,2,3)
     #   if d_set=0 then we're using possible data (0,1) and
     #       0: no variant detected
