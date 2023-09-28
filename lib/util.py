@@ -117,7 +117,6 @@ def convert_adjmatrix_to_ancmatrix(adj, check_validity=False):
 
 @njit(cache=True)
 def convert_ancmatrix_to_adjmatrix(anc):
-
     this_anc = np.copy(anc)
     for i in range(this_anc.shape[0]):
         this_anc[i,i] = 0
@@ -183,6 +182,27 @@ def convert_adjmatrix_to_parents(adj):
     for i in range(1,adj.shape[1]):
         parents[i-1] = find_first(1,adj[:,i])
     return parents#np.argmax(adj[:,1:], axis=0)
+
+
+def convert_nodeadj_to_mutadj(node_adj, mut_assignments):
+    assert len(mut_assignments) == node_adj.shape[0]-1
+    mutadj = np.zeros(node_adj.shape,dtype=int)
+    mut_assignments = np.append(0,mut_assignments)
+    node_assignments = np.zeros(mut_assignments.shape,dtype=int)
+    for i,a in enumerate(mut_assignments):
+        node_assignments[a] = i
+    for par, chld in np.argwhere(node_adj):
+        mutadj[node_assignments[par], node_assignments[chld]] = 1
+    return mutadj
+
+
+def convert_mutadj_to_nodeadj(mut_adj, mut_assignments):
+    assert len(mut_assignments) == mut_adj.shape[0]-1
+    node_adj = np.zeros(mut_adj.shape,dtype=int)
+    mut_assignments = np.append(0,mut_assignments)
+    for par, chld in np.argwhere(mut_adj):
+        node_adj[mut_assignments[par], mut_assignments[chld]] = 1
+    return node_adj
 
 
 @njit(cache=True)
