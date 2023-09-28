@@ -1,4 +1,4 @@
-SIMDIR=~/work/sc_pairtree/tests/comparing_to_other_methods/sim_data
+SIMDIR=~/work/sc_pairtree/tests/comparing_to_other_methods/sims/data
 BINDIR=~/work/phylo_methods/SCITE
 RESDIR=~/work/sc_pairtree/tests/comparing_to_other_methods/results/scite
 
@@ -17,22 +17,57 @@ function run_all_sims {
   
 
   # for M in 10 20 50 100; do
+  # for M in 100; do
   # for C in 100 500 1000 ; do
   # for M in 150 200; do
   # for C in 500 1000 ; do
-  for sim in 0 1 2 3 4 5 6 7 8 9 ; do
-  for FPR in 0.001; do
-  for ADO in 0.3; do
+  # for sim in 0 1 2 3 4 5 6 7 8 9 ; do
+  # for FPR in 0.001; do
+  # for ADO in 0.3; do
+
+  #Original dataset
+  #For min_cells_per_node=5
+  # min_cells_per_node=5
+  # for M in 10 20 50 100 200; do
+  # for cmult in 5 10 20 50 100; do
+  #For min_cells_per_node=2
+  # min_cells_per_node=2
+  # for M in 20 50 100 200; do
+  # for cmult in 5 10 20 50; do 
+  # for FPR in 0.001; do
+  # for ADO in 0.3; do
+  # for sim in 0 1 2 3 4 5 6 7 8 9; do
+  #For varying error rates
+  min_cells_per_node=2
+  for M in 100; do
+  for cmult in 5; do #5 50; do
+  for FPR in 0.001 0.01 0.1; do
+  for ADO in 0.1 0.3 0.5; do
+  for sim in 0 1 2 3 4 5 6 7 8 9; do
+  #Custom
+  # for M in 200; do
+  # for cmult in 5; do 
+  # for FPR in 0.001; do
+  # for ADO in 0.3; do
+  # for sim in 9; do
+  # M=200
+  # C=1000
+  # sim=9
+  # FPR=0.001
+  # ADO=0.3
+    C=`expr $M \* $cmult`
     echo $M $C $sim
     seed=`expr 1000 + $sim`
-    fn=m${M}_c${C}_fp${FPR}_ad${ADO}_ca${cell_alpha}_ma${mut_alpha}_dr${d_rng_id}_seed${seed}
+    # fn=m${M}_c${C}_fp${FPR}_ad${ADO}_ca${cell_alpha}_ma${mut_alpha}_dr${d_rng_id}_seed${seed}_orderRand
+    fn=m${M}_c${C}_fp${FPR}_ad${ADO}_ca${cell_alpha}_ma${mut_alpha}_dr${d_rng_id}_mc${min_cells_per_node}_seed${seed}
     data_fn=$SIMDIR/$fn.data
     out_fn=$RESDIR/$fn
     n_samp=`expr 100 \* $M`
-    tpc=`expr $M \* 2000`
+    tpc=`expr $M \* 1000`
     # python $BINDIR/sc_pairtree.py $data_fn $out_fn --seed $seed --data-range 1 --parallel $n_rep --trees-per-chain $tpc --burnin 0.5 --thinned-frac 0.5
     # \time -o $out_fn.time -f "Runtime: %E\n" ${BINDIR}/scite -i $data_fn -o $out_fn -n $M -m $C -r $n_rep -l $tpc -fd $FPR -ad $ADO -p $n_samp -s -g 1 -seed $seed -no_tree_list > $out_fn.log
-    bsub -n8 -R rusage[mem=8] -W 24:00 \time -o $out_fn.time -f "Runtime: %E\n" ${BINDIR}/scite -i $data_fn -o $out_fn -n $M -m $C -r $n_rep -l $tpc -fd $FPR -ad $ADO -p $n_samp -s -g 1 -seed $seed -e 0.1 > $out_fn.log
+    bsub -n10 -R rusage[mem=4] -W 72:00 -oo $out_fn.log \time -o $out_fn.time -f "Runtime: %E\n" ${BINDIR}/scite -i $data_fn -o $out_fn -n $M -m $C -r $n_rep -l $tpc -fd $FPR -ad $ADO -p $n_samp -s -g 1 -seed $seed -e 0.1
+    # \time -o $out_fn.time -f "Runtime: %E\n" ${BINDIR}/scite -i $data_fn -o $out_fn -n $M -m $C -r $n_rep -l $tpc -fd $FPR -ad $ADO -p $n_samp -s -g 1 -seed $seed -e 0.1 > $out_fn.log
   done
   done
   done
