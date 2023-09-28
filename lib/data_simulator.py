@@ -1,172 +1,157 @@
 import numpy as np
 from scipy.linalg import block_diag
-import json
-import matplotlib.pyplot as plt
-import getopt
+import random
 import os
 import sys
+import argparse
 from util import DATA_DIR
-
-def load_tree_parameters(sample, sim_dat_dir):
-    to_open = os.path.join(sim_dat_dir,"trees.json")
-    with open(to_open,'r') as f:
-         params = json.loads(f.read())
-    assert sample in params.keys()
-    
-    return params[sample]
+from tree_util import make_ancestral_from_adj
+from pairs_tensor_util import p_data_given_truth_and_errors
+from common import DataRange, DataRangeIdx
 
 
-def determine_ancestory_matrix(tree,node):
-    if node['children']: #If this node has at least one child
-        new_mat = np.array([]).reshape((0,0))
-        for child_name in node['children']:
-            child_node = tree[child_name]
-            cur_mat = determine_ancestory_matrix(tree, child_node)
-            new_mat = block_diag(new_mat, cur_mat)
-        new_mat = np.insert(new_mat,0,0,axis=1)
-        new_mat = np.insert(new_mat,0,1,axis=0)
-        return new_mat
-    else: #If this node does not have children.
-        return np.array([1])
-
-def get_node_ordering(tree,node):
-    if node['children']: #If this node has at least one child
-        new_order = np.array([])
-        for child_name in node['children']:
-            child_node = tree[child_name]
-            cur_order = get_node_ordering(tree,child_node)
-            if cur_order is not None:
-                new_order = np.append(new_order,np.append(child_name, cur_order))
-            else:
-                new_order = np.append(new_order,child_name)
-        return new_order
-    else:
-        return None
-
-
-def create_the_data(tree_params):
-    alpha = tree_params['alpha']
-    beta  = tree_params['beta']
-    n_cells = tree_params['n_cells']
-    tree = tree_params['tree']
-
-    data = []
-    ancestory_matrix = determine_ancestory_matrix(tree,tree['node_1'])
-    
-    #Haaaack
-    node_ordering = get_node_ordering(tree, tree['node_1'])
-    if node_ordering is not None:
-        node_ordering = np.append('node_1',get_node_ordering(tree,tree['node_1']))
-    else:
-        node_ordering = np.array(['node_1'])
-
-    print("Ancestory matrix:")
-    print(ancestory_matrix)
-    
-    n_snvs = np.sum([node['nSNVs'] for _,node in tree.items()])
-    data = np.random.rand(n_cells, n_snvs)
-    real_values = np.zeros((n_cells,n_snvs))
-
-    dropout_rate = beta**2
-    TP = (1-beta)**2*(1-alpha+alpha**2) + beta*(1-beta)
-    FP = alpha**2*(1-beta)**2 + 2*alpha*(1-alpha)*(1-beta)**2 + 2*alpha*beta*(1-beta)
-    TN = (1-alpha)**2*(1-beta)**2 + 2*(1-alpha)*beta*(1-beta)
-    FN = alpha*(1-alpha)*(1-beta)**2 + beta*(1-beta)
-
-    print("True positive rate:", TP / (1-dropout_rate))
-    print("False positive rate:", FP / (1-dropout_rate))
-    print("True negative rate:", TN / (1-dropout_rate))
-    print("False negative rate:", FN / (1-dropout_rate))
-
-    snv_start = 0
-    for i, node_i in enumerate([tree[node_name] for node_name in node_ordering]):
-        snv_end = snv_start + node_i['nSNVs']
-        cell_start = 0
-        for j, node_j in enumerate([tree[node_name] for node_name in node_ordering]):
-            cell_end = int(cell_start + np.round(node_j['phi']*n_cells))
-            if ancestory_matrix[i,j] == 1:
-                P0 = FN
-                P1 = TP
-                P3 = dropout_rate
-            else:
-                P0 = TN
-                P1 = FP
-                P3 = dropout_rate
-            this_batch = data[cell_start:cell_end, snv_start:snv_end]
-            this_batch[this_batch<P3] = 3
-            this_batch[this_batch<P1+P3] = 1
-            this_batch[this_batch<1] = 0
-            data[cell_start:cell_end, snv_start:snv_end] = this_batch
-            real_values[cell_start:cell_end, snv_start:snv_end] = ancestory_matrix[i,j]
-            cell_start = cell_end
-        snv_start = snv_end
-    
-    return data, real_values
-
-
-def create_anc_mat(params):
-    tree = params['tree']
-
-    ancestory_matrix = determine_ancestory_matrix(tree,tree['node_1'])
-    
-    n_snvs = np.sum([node['nSNVs'] for _,node in tree.items()])
-    anc_mat = np.zeros((n_snvs, n_snvs))
-
-    start_i = 0
-    for i, node_i in enumerate(tree.values()):
-        n_snvs_i = node_i['nSNVs']
-        start_j = start_i
-        for j, node_j in enumerate(tree.values()):
-            if j<i:
-                continue
-            n_snvs_j = node_j['nSNVs']
-            if i == j:
-                vals = np.zeros((n_snvs_i,n_snvs_j)) + 3
-                vals = np.triu(vals)
-            elif ancestory_matrix[i,j] == 1:
-                vals = np.zeros((n_snvs_i,n_snvs_j)) + 1
-            elif ancestory_matrix[i,j] == 0:
-                vals = np.zeros((n_snvs_i,n_snvs_j)) + 4
-            anc_mat[start_i:start_i+n_snvs_i, start_j:start_j+n_snvs_j] = vals
-            start_j += n_snvs_j
-        start_i += n_snvs_i
-
-    return anc_mat
-
-
-def save_the_data(data,fn):
-
-    with open(fn,'w') as f:
-        for i in range(data.shape[0]):
-            line = '\t'.join([str(int(j)) for j in data[i,:]]) + '\n'
-            f.write(line)
+def _save_data(data,real_tree_info):
+    #Can do this one later when I feel like it.
+    #Will have to set an output location and save all of the input parameters as well.
     return
 
+def _apply_errors(real_data,FPR,ADO):
+    # Here, FPR corresponds to the false positive rate on one of the alleles of a locus.
+    # This could mean that two false positives could occur, and still get just the one FP
+    # Additionally, ADO corresponds to just one allele dropping out. Doesn't necessarily mean
+    # a false negative will occur. Also, assuming a diploid cell, the full locus dropout 
+    # will be ADO^2
+
+    #Start off with most complex data, then reduce complexity if user asks for it.
+    d_rng_i = DataRangeIdx.ref_hetvar_homvar_nodata
+    r_rng = DataRange[d_rng_i] #[0,1,2,3]
+
+    data = np.zeros(real_data.shape, dtype=int)
+    ps_gt0 = [p_data_given_truth_and_errors(d,0,FPR,ADO,d_rng_i) for d in r_rng]
+    ps_gt1 = [p_data_given_truth_and_errors(d,1,FPR,ADO,d_rng_i) for d in r_rng]
+    data = data + np.multiply((real_data==0).astype(int), np.random.choice(r_rng, data.shape, p=ps_gt0))
+    data = data + np.multiply((real_data==1).astype(int), np.random.choice(r_rng, data.shape, p=ps_gt1))
+
+    return data
+
+def _put_data_in_drange_format(data, d_rng_id=DataRangeIdx.ref_var_nodata):
+    if d_rng_id==DataRangeIdx.ref_hetvar_homvar_nodata:
+        return np.copy(data)
+    elif d_rng_id==DataRangeIdx.ref_var_nodata:
+        to_ret = np.copy(data)
+        to_ret[to_ret==2] = 1
+        return to_ret
+    elif d_rng_id==DataRangeIdx.var_notvar:
+        to_ret = np.copy(data)
+        to_ret[to_ret==2] = 1
+        to_ret[to_ret==3] = 0
+        return to_ret
+
+def _generate_error_free_data(anc_mat, cell_assignments, mut_assignments):
+    #Switch to one-hot encoding
+    CA = np.eye(anc_mat.shape[0])[cell_assignments].T
+    MA = np.eye(anc_mat.shape[0])[mut_assignments].T
+
+    error_free_dat = MA.T @ anc_mat @ CA
+    return error_free_dat.astype(int)
+
+def _assign_to_subclones(n_assignments, n_clust, min_assigned_per_sc, a=1):
+    assert n_assignments >= min_assigned_per_sc*n_clust
+    #Determine assignments
+    clust_weights = np.random.dirichlet([a]*n_clust)
+    assignments = np.random.choice(n_clust, size=n_assignments, p=clust_weights)+1 #+1 to account for added root node
+    #Impose the min_assigned criteria by overwriting random indices
+    hardset_assignment_inds = np.random.permutation(n_assignments)[0:n_clust*min_assigned_per_sc]
+    hardset_assignments = [i+1 for i in range(n_clust) for j in range(min_assigned_per_sc)] #+1 to account for added root node
+    assignments[hardset_assignment_inds] = hardset_assignments
+    
+    return assignments
+
+def _generate_tree_structure(n_clust):
+    #All nodes are considered adjacent to themselves. Add one more cluster for the root node.
+    adj_mat = np.eye(n_clust+1, dtype=int)
+    #Set the first node to branch off the root node
+    adj_mat[0,1] = 1
+    #Iterate through the rest of the nodes. Either continue a chain with prob 3/4 or start a new chain with prob 1/4.
+    for node in range(2,n_clust+1):
+        if np.random.rand() <= 0.75:
+            adj_mat[node-1,node] = 1
+        else:
+            new_parent = np.random.randint(0,node)
+            adj_mat[new_parent,node] = 1
+
+    anc_mat = make_ancestral_from_adj(adj_mat)
+
+    return adj_mat, anc_mat
+
+def generate_simulated_data(n_clust, n_cells, n_muts, FPR, ADO, cell_alpha, mut_alpha, drange, min_cell_per_node=1, min_mut_per_node=1):
+    #These correspond to how the nodes / subclones are related to each other.
+    adj_mat, anc_mat = _generate_tree_structure(n_clust)
+    
+    cell_assignments = _assign_to_subclones(n_cells, n_clust, min_cell_per_node, a=cell_alpha)
+    mut_assignments  = _assign_to_subclones(n_muts,  n_clust, min_mut_per_node, a=mut_alpha)
+
+    real_data = _generate_error_free_data(anc_mat,cell_assignments,mut_assignments)
+    data = _apply_errors(real_data,FPR,ADO)
+    data = _put_data_in_drange_format(data,drange)
+    return data, (real_data, adj_mat, cell_assignments, mut_assignments)
 
 def get_args():
-    args = sys.argv
-    if len(args)==1:
-        return []
-    opts, args = getopt.getopt(args[1:],"i:")
-    for opt, arg in opts:
-        if opt == '-i':
-            tree_name = arg
-    return tree_name
+    parser = argparse.ArgumentParser(
+        description='Simulate single-cell tumour data.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument('--seed', dest='seed', type=int, default=np.random.randint(2**32),
+        help='Integer seed used for pseudo-random number generator.')
+    parser.add_argument('--name', dest='name', type=str, default=None,
+        help='(Optional) The name of the tree being created')
+    parser.add_argument('K', dest='n_clust', type=int, default=30,
+        help='Number of subclones to simulate.')
+    parser.add_argument('C', dest='n_cells', type=int, default=10,
+        help='Number of cells per subclone.')
+    parser.add_argument('M', dest='n_muts', type=int, default=10,
+        help='Number of mutations per subclone.')
+    parser.add_argument('A', dest='ADO', type=float, default=0.5,
+        help='Allelic dropout rate.')
+    parser.add_argument('P', dest='FPR', type=float, default=0.005,
+        help='False positive rate.')
+    parser.add_argument('--data-range', dest='d_rng_id', type=int, default=1,
+        help='Data range id. There are 3 options: (0: [0,1]; 1: [0,1,3]; 2: [1,2,3])')
+    parser.add_argument('--cell-alpha', dest='cell_alpha', type=float, default=0.5,
+        help='Dirichlet distribution parameter for distributing cells to the clusters.')
+    parser.add_argument('--mut-alpha', dest='mut_alpha', type=float, default=1.,
+        help='Dirichlet distribution parameter for distributing mutations to the clusters.')
+    parser.add_argument('--sim-isav', dest='ISAs', action='store_true',
+        help='Whether or not to simualate ISA violations.')
+    parser.add_argument('--save-data', dest='save_data', action='store_true',
+        help='Whether or not to save the data. If true nothing will be returned.')
+
+    args = parser.parse_args()
+    return args
 
 
 def main():
-    sim_dat_dir = os.path.join(DATA_DIR,"simulated")
-    tree_name = get_args()
-    tree_params = load_tree_parameters(tree_name, sim_dat_dir)
-    
+    args = get_args()
 
-    data, real_values = create_the_data(tree_params)
-    anc_mat = create_anc_mat(tree_params)
-    save_the_data(np.transpose(data), os.path.join(sim_dat_dir, tree_name+'_data.txt'))
-    save_the_data(np.transpose(real_values), os.path.join(sim_dat_dir, tree_name+'_real.txt'))
-    save_the_data(anc_mat, os.path.join(sim_dat_dir, tree_name+"_ancMat.txt"))
+    np.random.seed(args.seed)
+    random.seed(args.seed)
 
-    return
+    data, real_tree_info = generate_simulated_data(
+        args.n_clust,
+        args.n_cells,
+        args.n_muts,
+        args.FPR,
+        args.ADO,
+        args.cell_alpha,
+        args.mut_alpha,
+        args.d_rng_id
+        )
+
+    if args.save_data:
+        _save_data(data,real_tree_info)
+        return
+    else:
+        return data
 
 
 
