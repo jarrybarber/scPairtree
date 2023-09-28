@@ -35,6 +35,10 @@ def _parse_args():
         help='Integer seed used for pseudo-random number generator. Running scPairtree with the same seed on the same inputs will produce exactly the same result.')
     parser.add_argument('--data-range', dest='d_rng_i', type=int, default=None,
         help='Data range id. There are 3 options: (0: [0,1]; 1: [0,1,3]; 2: [1,2,3])')
+    parser.add_argument('--adr', dest='adr', type=float, default=None,
+        help='Allelic dropout rate. If not set then will be estimated from the data.')
+    parser.add_argument('--fpr', dest='fpr', type=float, default=None,
+        help='False positive rate. If not set then will be estimated from the data.')
     parser.add_argument('--variable-ado', dest='variable_ado', action='store_true',
         help='When estimating error rates, treat ADO as mutation specific. Else, ADO is treated as a global parameter for the entire dataset.')
     parser.add_argument('--parallel', dest='parallel', type=int, default=None,
@@ -59,6 +63,7 @@ def _parse_args():
         help='Exit after building pairwise relations tensor, without sampling any trees.')
     parser.add_argument('--disable-posterior-sort', dest='sort_by_llh', action='store_false',
         help='Disable sorting posterior tree samples by descending probability, and instead list them in the order they were sampled')
+    
     for K in hyperparams.defaults.keys():
         parser.add_argument('--%s' % K, type=float, default=hyperparams.defaults[K], help=hyperparams.explanations[K])
 
@@ -73,6 +78,11 @@ def _init_hyperparams(args):
         setattr(hyperparams, K, V)
 
 def _get_default_args(args):
+
+    if (args.fpr is not None) or (args.adr is not None):
+        if (args.fpr is not None) and (args.adr is not None):
+            raise Exception("Currently, scPairtree requires either both error rates to be set or neither to be set. Please set both:\n - --adr\n - --fpr")
+        
     # Note that multiprocessing.cpu_count() returns number of logical cores, so
     # if you're using a hyperthreaded CPU, this will be more than the number of
     # physical cores you have.
@@ -177,16 +187,20 @@ def main():
 
     ### ESTIMATE THE ERROR RATES ###
     if res.has("est_FPRs") & res.has("est_ADOs"):
-        est_FPRs = res.get("est_FPRs")
-        est_ADOs = res.get("est_ADOs")
+        fpr = res.get("est_FPRs")
+        adr = res.get("est_ADOs")
+    elif (args.fpr is not None) and (args.adr is not None):
+        print("Error rates input, no estimation required...")
+        fpr = args.fpr
+        adr = args.adr
     else:
         print("Estimating error rates...")
         s = time.time()
         err_rates, _ = estimate_error_rates(data, d_rng_i=args.d_rng_i, variable_ado=args.variable_ado)
-        est_FPRs, est_ADOs, _ = err_rates
+        fpr, adr, _ = err_rates
         res.add("est_runtime", time.time()-s)
-        res.add("est_FPRs", est_FPRs)
-        res.add("est_ADOs", est_ADOs)
+        res.add("est_FPRs", fpr)
+        res.add("est_ADOs", adr)
         res.save()
     
 
@@ -196,7 +210,7 @@ def main():
     else:
         print("Constructing pairs tensor...")
         s = time.time()
-        pairs_tensor = construct_pairs_tensor(data, est_FPRs, est_ADOs, d_rng_i=args.d_rng_i, scale_integrand=True)
+        pairs_tensor = construct_pairs_tensor(data, fpr, adr, d_rng_i=args.d_rng_i, scale_integrand=True)
         res.add("pairs_tensor_runtime", time.time()-s)
         res.add("pairs_tensor", pairs_tensor)
         res.save()
@@ -209,7 +223,7 @@ def main():
     else:
         print("Sampling trees...")
         s = time.time()
-        best_tree, adjs, llhs, accept_rates, chain_n_samples, conv_stat = sample_trees(data, pairs_tensor, FPR=est_FPRs, ADO=est_ADOs, 
+        best_tree, adjs, llhs, accept_rates, chain_n_samples, conv_stat = sample_trees(data, pairs_tensor, FPR=fpr, ADO=adr, 
             trees_per_chain=args.trees_per_chain, 
             burnin=args.burnin, 
             nchains=args.tree_chains, 
