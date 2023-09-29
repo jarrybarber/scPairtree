@@ -39,6 +39,8 @@ def _parse_args():
         help='Allelic dropout rate. If not set then will be estimated from the data.')
     parser.add_argument('--fpr', dest='fpr', type=float, default=None,
         help='False positive rate. If not set then will be estimated from the data.')
+    parser.add_argument('--rerun', dest='rerun', action='store_true',
+        help='Regardless of whether this datafile has already been run, rerun all analysis.')
     parser.add_argument('--variable-ado', dest='variable_ado', action='store_true',
         help='When estimating error rates, treat ADO as mutation specific. Else, ADO is treated as a global parameter for the entire dataset.')
     parser.add_argument('--parallel', dest='parallel', type=int, default=None,
@@ -154,7 +156,7 @@ def main():
 
     ### CREATE OBJECT WHICH CAN SAVE THE RESULTS OF THIS RUN ###
     res = Results(args.results_fn)
-    if res.has("scp_args"):
+    if res.has("scp_args") and not args.rerun:
         print("sc_pairtree already run using this results filename. Overriding current arguments with previous arguments to avoid overwriting previous results.")
         d = vars(args)
         old_args = res.get("scp_args")
@@ -176,7 +178,7 @@ def main():
 
     
     ### LOAD IN THE DATA ###
-    if res.has("data"):
+    if res.has("data") and not args.rerun:
         data = res.get("data")
     else:
         data, gene_names = load_data(args.data_fn)
@@ -186,7 +188,7 @@ def main():
         
 
     ### ESTIMATE THE ERROR RATES ###
-    if res.has("est_FPRs") & res.has("est_ADOs"):
+    if res.has("est_FPRs") and res.has("est_ADOs") and not args.rerun:
         fpr = res.get("est_FPRs")
         adr = res.get("est_ADOs")
     elif (args.fpr is not None) and (args.adr is not None):
@@ -205,7 +207,7 @@ def main():
     
 
     ### CONSTRUCT THE PAIRS TENSOR ###
-    if res.has("pairs_tensor"):
+    if res.has("pairs_tensor") and not args.rerun:
         pairs_tensor = res.get("pairs_tensor")
     else:
         print("Constructing pairs tensor...")
@@ -216,7 +218,7 @@ def main():
         res.save()
 
     ### SAMPLE TREES ###
-    if res.has("adj_mats"):
+    if res.has("adj_mats") and not args.rerun:
         adjs = res.get("adj_mats")
         llhs = res.get("tree_llhs")
         accept_rates = res.get("accept_rates")
