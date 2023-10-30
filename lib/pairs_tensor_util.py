@@ -179,7 +179,7 @@ def p_trueDat_given_model_and_phis(t1,t2,model,phi1,phi2):
     return to_ret 
 
 @njit(cache=True)
-def _log_model_posterior(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, d_rng):
+def _log_p_data_given_model_phis_and_errors(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, d_rng):
     phi_pri = p_phi_given_model(model, phi_a, phi_b)
     if phi_pri==0:
         return -np.inf
@@ -198,7 +198,7 @@ def _log_model_posterior(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b,
     
     return log_post
 
-def log_model_posterior(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i):
+def log_p_data_given_model_phis_and_errors(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i):
     # d_set=set of possible d values. Note that this can be either (0,1), [(0,1,3)] or (0,1,2,3)
     #   if d_set=0 then we're using possible data (0,1) and
     #       0: no variant detected
@@ -220,8 +220,8 @@ def log_model_posterior(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, 
     assert pairwise_occurances.shape[0] == pairwise_occurances.shape[1]
     assert pairwise_occurances.shape[0] == len(d_rng)
     
-    return _log_model_posterior(model,pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, d_rng)
+    return _log_p_data_given_model_phis_and_errors(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, d_rng)
 
-def model_posterior(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, scale=0):
-    post = np.exp(log_model_posterior(model,pairwise_occurances,fpr_a,fpr_b,ado_a,ado_b,phi_a,phi_b,d_rng_i) - scale)
+def p_data_given_model_phis_and_errors(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, scale=0):
+    post = np.exp(log_p_data_given_model_phis_and_errors(model,pairwise_occurances,fpr_a,fpr_b,ado_a,ado_b,phi_a,phi_b,d_rng_i) - scale)
     return post

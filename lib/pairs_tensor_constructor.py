@@ -9,23 +9,23 @@ from numba import njit
 
 from common import Models, NUM_MODELS, _EPSILON
 from util import determine_all_pairwise_occurance_counts
-from pairs_tensor_util import model_posterior, log_model_posterior
+from pairs_tensor_util import p_data_given_model_phis_and_errors, log_p_data_given_model_phis_and_errors
 
 # @njit
 def _2d_integrand(phi1,phi2,model,pairwise_occurances,fpr1,fpr2,ado1,ado2,d_rng_i,scale):
-    return model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,phi1,phi2,d_rng_i,scale)
+    return p_data_given_model_phis_and_errors(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,phi1,phi2,d_rng_i,scale)
 
 # @njit
 def _1d_integrand(phi,model,pairwise_occurances,fpr1,fpr2,ado1,ado2,d_rng_i,scale):
-    return model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,phi,phi,d_rng_i,scale)
+    return p_data_given_model_phis_and_errors(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,phi,phi,d_rng_i,scale)
 
 # @njit
 def _2d_tomin(x,model,pairwise_occurances,fpr1,fpr2,ado1,ado2,d_rng_i):
-    return -log_model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,x[0],x[1],d_rng_i)
+    return -log_p_data_given_model_phis_and_errors(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,x[0],x[1],d_rng_i)
 
 # @njit
 def _1d_tomin(x,model,pairwise_occurances,fpr1,fpr2,ado1,ado2,d_rng_i):
-    return -log_model_posterior(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,x[0],x[0],d_rng_i)
+    return -log_p_data_given_model_phis_and_errors(model,pairwise_occurances,fpr1,fpr2,ado1,ado2,x[0],x[0],d_rng_i)
 
 def _get_model_params(model, d_rng_i):
     if model==Models.A_B:
