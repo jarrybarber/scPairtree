@@ -131,7 +131,7 @@ def p_data_given_truth_and_errors(d, t, fpr, ado, d_rng_i=DataRangeIdx.ref_var_n
 @njit('f8(i1,i1,i1,f8,f8)', cache=True)
 def p_trueDat_given_model_and_phis(t1,t2,model,phi1,phi2):
     if model==Models.cocluster:
-        if (phi1 != phi2) | (t1 != t2):
+        if (np.abs(phi1-phi2) > ISCLOSE_TOLERANCE) or (t1 != t2):
             to_ret = 0
         elif t1==0:
             to_ret = 1-phi1
@@ -188,12 +188,18 @@ def _log_p_data_given_model_phis_and_errors(model, pairwise_occurances, fpr_a, f
     for i,d_i in enumerate(d_rng):
         for j,d_j in enumerate(d_rng):
             to_sum = 0
+            #This slight speeds things up. It is also necessary for cases where
+            # model = cocluster and pairwise_occurances==0, as np.log(to_sum) is 
+            # likely to be set to -np.inf and 0*-inf = nan. In such a case, we just
+            # want to 
+            # if pairwise_occurances[i,j] == 0:
+            #     continue
             for t_n in (0,1):
                 for t_m in (0,1):
                     to_sum += p_data_given_truth_and_errors(d_i,t_n,fpr_a,ado_a,d_rng_i) * \
                               p_data_given_truth_and_errors(d_j,t_m,fpr_b,ado_b,d_rng_i) * \
                               p_trueDat_given_model_and_phis(t_n,t_m,model,phi_a,phi_b)
-                                
+
             log_post += pairwise_occurances[i,j] * np.log(to_sum)
     
     return log_post

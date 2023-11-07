@@ -290,28 +290,86 @@ def remove_rowcol(arr, indices):
     assert np.array_equal(arr.shape, shape)
     return arr
 
-# From Jeff <3 (Not used at the moment. Still using scipy for logsumexp and loggamma)
 @njit(cache=True)
-def logsumexp(V, axis=None):
+def numba_logsumexp(V):
+    #This does not support an `axis` argument. Just flattens any input vector and acts on the whole thing
     B = np.max(V)
-    # Explicitly checking `axis` is necessary for Numba, which doesn't support
-    # `axis=None` in calling `np.sum()`.
-    if axis is None:
-      # Avoid NaNs when inputs are all -inf.
-      # Numba doesn't support `np.isneginf`, alas.
-      if np.isinf(B) and B < 0:
+    # Avoid NaNs when inputs are all -inf.
+    # Numba doesn't support `np.isneginf`, alas.
+    if np.isinf(B) and B < 0:
         return B
-      summed = np.sum(np.exp(V - B))
-    else:
-      # NB: this is suboptimal, since we should call `np.max(V, axis)`, but Numba
-      # doesn't yet support the axis argument. So, we end up using the scalar
-      # maximum across the entire array, not the vector maximum across the axis.
-      #
-      # NB part deux: if all the elements across one axis of the array are -inf,
-      # this will break and return NaN, when it should instead return -inf. So
-      # long as `np.max(..., axis)` isn't supported in Numba, this is non-trivial
-      # to fix.
-      summed = np.sum(np.exp(V - B), axis)
-      B = np.ones(summed.shape)
+    summed = np.sum(np.exp(V - B))
     log_sum = B + np.log(summed)
     return log_sum
+
+def logspace_quadrature(log_f,lb,ub,points=[]):
+    #Okay, how would this work?
+    # - Ultimately this will work by calculating log_f(x) for a range of x
+    #   and then using logsumexp(log_f(x)+log(dx)) to end up with log(integral(f(x))).
+    #   The tricky part will be finding the x values that allow me to do this accurately.
+    #   And maybe 
+    # - Start off by finding the maximum value of log_f. We can use this
+    #   to scale log(f(x)). This will help with the adding more samples 
+    #   proceedure later because we will be able to safely ignore regions
+    #   with very little density, since we'll pretty well always be under the
+    #   threshold.
+    # - To get the "maximum", I just evenly sample across range(lb,ub), keeping
+    #   track of the x as I do so. Later, I can use the difference of x
+    #   between neighbouring samples as my dx.
+    # - If (df(x_i+1)/dx - df(x_i)/dx) / df(x_i)/dx > df_threshold, then sample more between
+    #   x_i and x_i-1 until the condition is true.
+    n_init_samples = 100
+    max_iter = 2000
+    df_threshold = 0.0001
+    scaled_logf_min_threshold = -20
+    x = np.linspace(lb,ub,n_init_samples)
+    logf_evals = np.array([log_f(x_i) for x_i in x])
+    max_logf = np.max(logf_evals)
+    scaled_logf_evals = logf_evals-scale
+    
+    i = 1
+    while (x_i < ub) or (i > max_iter):
+        if scaled_logf_evals[i] < scaled_logf_min_threshold:
+            #The value is so small compared to the max that it is essentially 0
+            i += 1
+            continue
+        dx_i = x[i] - x[i-1]
+        dx_ip1 = x[i+1] - x[i]
+        df_dx_i = (np.exp(scaled_logf_evals[i]) - np.exp(scaled_logf_evals[i-1]))/dx_i
+        df_dx_ip1 = (np.exp(scaled_logf_evals[i+1]) - np.exp(scaled_logf_evals[i]))/dx_ip1
+        diff_dfs = (df_dx_ip1 - df_dx_i) / (df_dx_ip1 + df_dx_i)
+        if diff_dfs > df_threshold:
+            #They're changing too fast, let's add two more points around x[i]
+            x = np.insert(x,i+1,(x[i+1] + x[i])/2)
+            x = np.insert(x,i,(x[i] + x[i-1])/2)
+            scaled_logf_evals = np.insert(scaled_logf_evals, i+1, log_f(x[i+2])-scale)
+            scaled_logf_evals = np.insert(scaled_logf_evals, i, log_f(x[i])-scale)
+        i += 1
+        
+    return
+
+# From Jeff <3 (Not used at the moment. Still using scipy for logsumexp and loggamma)
+# @njit(cache=True)
+# def logsumexp(V, axis=None):
+#     B = np.max(V)
+#     # Explicitly checking `axis` is necessary for Numba, which doesn't support
+#     # `axis=None` in calling `np.sum()`.
+#     if axis is None:
+#       # Avoid NaNs when inputs are all -inf.
+#       # Numba doesn't support `np.isneginf`, alas.
+#       if np.isinf(B) and B < 0:
+#         return B
+#       summed = np.sum(np.exp(V - B))
+#     else:
+#       # NB: this is suboptimal, since we should call `np.max(V, axis)`, but Numba
+#       # doesn't yet support the axis argument. So, we end up using the scalar
+#       # maximum across the entire array, not the vector maximum across the axis.
+#       #
+#       # NB part deux: if all the elements across one axis of the array are -inf,
+#       # this will break and return NaN, when it should instead return -inf. So
+#       # long as `np.max(..., axis)` isn't supported in Numba, this is non-trivial
+#       # to fix.
+#       summed = np.sum(np.exp(V - B), axis)
+#       B = B*np.ones(summed.shape)
+#     log_sum = B + np.log(summed)
+#     return log_sum
