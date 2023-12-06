@@ -33,51 +33,56 @@ def _get_breadth_first_traversal(adj,start_ind=0):
 
 
 @njit(cache=True)
-def _calc_tree_llh(data,anc,fpr,ado,dtype):
+def _calc_tree_llh(data,anc,mut_ass,fpr,ado,d_rng_i):
+    d_range = common.get_d_range(d_rng_i)
     n_mut, n_cell = data.shape
-    n_node = n_mut + 1
+    n_clst = len(np.unique(mut_ass))
     adj = util.convert_ancmatrix_to_adjmatrix(anc)
     parents = util.convert_adjmatrix_to_parents(adj)
     node_order = _get_breadth_first_traversal(adj)
 
     p_dgas = np.zeros((4,2,n_mut))
-    for d in (0,1,3):
+    for d in d_range:
         for t in (0,1):
             for m in range(n_mut):
-                p_dgas[d,t,m] = np.log(p_data_given_truth_and_errors(d,t,fpr[m],ado[m],dtype))
-
+                p_dgas[d,t,m] = np.log(p_data_given_truth_and_errors(d,t,fpr[m],ado[m],d_rng_i))
+        
     outer_sum = 0
     for i in range(n_cell):
-        j = 0 #Consider the cell being attached to the root first
-        score_cell_at_nodes = np.zeros(n_node)
+        #Consider the cell being attached to the root first
+        j = 0 
+        score_cell_at_nodes = np.zeros(n_clst+1)
         for k in range(n_mut):
-            p_dga = p_dgas[data[k,i],anc[k+1,j],k]
+            p_dga = p_dgas[data[k,i], anc[mut_ass[k],j], k]
             score_cell_at_nodes[j] += p_dga
+        #Can now consider the rest of the nodes, making use 
+        #of the information calculated for each node's parent.
         for j in node_order[1:]:
             parent = parents[j-1]
-            parent_cont_to_sub = p_dgas[data[j-1,i],0,j-1]
-            this_cont_to_add   = p_dgas[data[j-1,i],1,j-1]
-            score_cell_at_nodes[j] = score_cell_at_nodes[parent] - parent_cont_to_sub + this_cont_to_add
+            score_cell_at_nodes[j] = score_cell_at_nodes[parent]
+            for k in range(n_mut):
+                if not (mut_ass[k]==j):
+                    continue
+                parent_cont_to_sub = p_dgas[data[k,i],0,k]
+                this_cont_to_add   = p_dgas[data[k,i],1,k]
+                score_cell_at_nodes[j] += this_cont_to_add - parent_cont_to_sub
         score_cell_at_nodes = score_cell_at_nodes[1:]
         B = np.max(score_cell_at_nodes)
         mid = np.log(np.sum(np.exp(score_cell_at_nodes - B))) + B
         outer_sum += mid
-
     return outer_sum
 
 
 @njit(cache=True)
-def make_ancestral_from_adj(adj, check_validity=False):
+def make_ancestral_from_adj(adj):
     #Note: taken from Jeff's util code.
     K = len(adj)
     root = 0
 
-    if check_validity:
-        # By default, disable checks to improve performance.
-        assert np.all(1 == np.diag(adj))
-        expected_sum = 2 * np.ones(K)
-        expected_sum[root] = 1
-        assert np.array_equal(expected_sum, np.sum(adj, axis=0))
+    assert np.all(1 == np.diag(adj))
+    expected_sum = 2 * np.ones(K)
+    expected_sum[root] = 1
+    assert np.array_equal(expected_sum, np.sum(adj, axis=0))
 
     Z = np.copy(adj)
     # np.fill_diagonal(Z, 0)
@@ -97,23 +102,20 @@ def make_ancestral_from_adj(adj, check_validity=False):
         Z[:,C] = np.expand_dims(C_anc, 1)
         stack += list(C)
     
-    # np.fill_diagonal(Z, 1)
     for i in range(Z.shape[0]):
         Z[i,i] = 1
-        
-    if check_validity:
-        assert np.array_equal(Z[root], np.ones(K))
+    assert np.array_equal(Z[root], np.ones(K))
+
     return Z
 
 
 @njit(cache=True)
-def _calc_tree_logmutrel(adj, pairs_tensor, check_validity=False):
+def _calc_tree_logmutrel(adj, pairs_tensor):
     #NOTE: This code was copied from Jeff's tree_sampler.py
-    node_rels = util.compute_node_relations(adj, check_validity)
+    node_rels = util.compute_node_relations(adj)
     K = len(node_rels)
-    if check_validity:
-        assert node_rels.shape == (K, K)
-        assert pairs_tensor.shape == (K-1, K-1, NUM_MODELS)
+    assert node_rels.shape == (K, K)
+    assert pairs_tensor.shape == (K-1, K-1, NUM_MODELS)
 
     # First row and column of `tree_logmutrel` will always be zero.
     tree_logmutrel = np.zeros((K,K))
@@ -123,9 +125,8 @@ def _calc_tree_logmutrel(adj, pairs_tensor, check_validity=False):
             JK_clustrel = node_rels[J+1,K+1]
             tree_logmutrel[J+1,K+1] = pairs_tensor[J,K,JK_clustrel]
     
-    if check_validity:
-        assert np.array_equal(tree_logmutrel, tree_logmutrel.T)
-        assert np.all(tree_logmutrel <= 0)
+    assert np.array_equal(tree_logmutrel, tree_logmutrel.T)
+    assert np.all(tree_logmutrel <= 0)
     return tree_logmutrel
 
 @njit(cache=True)
@@ -259,33 +260,6 @@ def _make_W_nodes_mutrel(adj, anc, pairs_tensor):
     weights[1:] += common._EPSILON
     weights /= np.sum(weights)
     assert weights[0] == 0
-
-    return weights
-
-def _old_make_W_nodes_mutrel(adj, anc, pairs_tensor):
-    #NOTE: This code was copied from Jeff's tree_sampler.py
-    K = len(adj)
-    assert adj.shape == (K, K)
-
-    tree_logmutrel = _calc_tree_logmutrel(adj, pairs_tensor)
-    pair_error = 1 - np.exp(tree_logmutrel)
-    #pair_error *= 1 - anc
-
-    assert np.allclose(0, np.diag(pair_error))
-    assert np.allclose(0, pair_error[0])
-    assert np.allclose(0, pair_error[:,0])
-    pair_error = np.maximum(common._EPSILON, pair_error)
-    node_error = np.sum(np.log(pair_error), axis=1)
-    #Jarry edit out... maybe I'll put that debuging stuff back in later.
-    # if common.debug.DEBUG:
-    #     _make_W_nodes_mutrel.node_error = node_error
-
-    weights = np.zeros(K)
-    weights[1:] += _scaled_softmax(node_error[1:])
-    weights[1:] += common._EPSILON
-    weights /= np.sum(weights)
-    assert weights[0] == 0
-
     return weights
 
 @njit(cache=True)
@@ -346,7 +320,7 @@ def _update_node_rels(node_rels,A,B):
     return predicted_node_rels
 
 @njit(cache=True)
-def _calc_move_logweight(node_rels, pairs_tensor, dest, subtree_head, check_validity=False):
+def _calc_move_logweight(node_rels, pairs_tensor, dest, subtree_head):
     #NOTE: This code was copied from Jeff's tree_sampler.py
     K = len(node_rels)
 
@@ -478,7 +452,7 @@ def _find_parent(node, adj):
     return parents[0]
 
 @njit(cache=True)
-def _modify_tree(adj, anc, A, B, check_validity=False):
+def _modify_tree(adj, anc, A, B,):
     #NOTE: This code was copied from Jeff's tree_sampler.py
     '''If `B` is ancestral to `A`, swap nodes `A` and `B`. Otherwise, move
     subtree `B` under `A`.
@@ -488,16 +462,14 @@ def _modify_tree(adj, anc, A, B, check_validity=False):
     K = len(adj)
     adj = np.copy(adj)
 
-    if check_validity:
-        # Ensure `B` is not zero.
-        assert 0 <= A < K and 0 < B < K
-        assert A != B
-        assert np.array_equal(np.diag(adj), np.ones(K))
-        # Diagonal should be 1, and every node except one of them should have a parent.
-        assert np.sum(adj) == K + (K - 1)
-        # Every column should have two 1s in it corresponding to self & parent,
-        # except for column denoting root.
-        assert np.array_equal(np.sort(np.sum(adj, axis=0)), np.array([1 if i==0 else 2 for i in range(K)]))
+    assert 0 <= A < K and 0 < B < K
+    assert A != B
+    assert np.array_equal(np.diag(adj), np.ones(K))
+    # Diagonal should be 1, and every node except one of them should have a parent.
+    assert np.sum(adj) == K + (K - 1)
+    # Every column should have two 1s in it corresponding to self & parent,
+    # except for column denoting root.
+    assert np.array_equal(np.sort(np.sum(adj, axis=0)), np.array([1 if i==0 else 2 for i in range(K)]))
 
     # np.fill_diagonal(adj, 0)
     for i in range(adj.shape[0]):
@@ -531,9 +503,8 @@ def _modify_tree(adj, anc, A, B, check_validity=False):
     return adj
 
 @njit(cache=True)
-def _generate_new_sample(old_samp, data, pairs_tensor, FPR, ADO, d_rng_id):
+def _generate_new_sample(old_samp, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_id):
     #NOTE: This code was copied from Jeff's tree_sampler.py
-    #I removed last two inputs for calculating the phis.
     # s_tot = time.time()
     K = len(old_samp.adj)
     # When a tree consists of two nodes (i.e., one mutation cluster), proceeding with
@@ -572,7 +543,7 @@ def _generate_new_sample(old_samp, data, pairs_tensor, FPR, ADO, d_rng_id):
     new_samp = TreeSample(
         adj = new_adj,
         anc = new_anc,
-        llh = _calc_tree_llh(data, new_anc, FPR, ADO, d_rng_id)
+        llh = _calc_tree_llh(data, new_anc, mut_ass, FPR, ADO, d_rng_id)
     )
 
     # `A_prime` and `B_prime` correspond to the node choices needed to reverse
@@ -596,15 +567,11 @@ def _generate_new_sample(old_samp, data, pairs_tensor, FPR, ADO, d_rng_id):
         new_samp.anc,
         pairs_tensor,
     )
-    # log_p_B_new_given_old = np.log(np.dot(mode_node_weights, W_nodes_old[:,B]))
-    # log_p_A_new_given_old = np.log(np.dot(mode_dest_weights, W_dests_old[:,A]))
     log_p_B_new_given_old = np.log(mode_node_weights[0]*W_nodes_old[0,B] + mode_node_weights[1]*W_nodes_old[1,B])
     log_p_A_new_given_old = np.log(mode_dest_weights[0]*W_dests_old[0,A] + mode_dest_weights[1]*W_dests_old[1,A])
     # The need to use `A_prime` and `B_prime` here rather than `A` and `B`
     # becomes apparent when you consider the case when `B` is ancestral to `A` in
     # the old tree.
-    # log_p_B_old_given_new = np.log(np.dot(mode_node_weights, W_nodes_new[:,B_prime]))
-    # log_p_A_old_given_new = np.log(np.dot(mode_dest_weights, W_dests_new[:,A_prime]))
     log_p_B_old_given_new = np.log(mode_node_weights[0]*W_nodes_new[0,B_prime] + mode_node_weights[1]*W_nodes_new[1,B_prime])
     log_p_A_old_given_new = np.log(mode_dest_weights[0]*W_dests_new[0,A_prime] + mode_dest_weights[1]*W_dests_new[1,A_prime])
 
@@ -614,7 +581,7 @@ def _generate_new_sample(old_samp, data, pairs_tensor, FPR, ADO, d_rng_id):
     return (new_samp, log_p_new_given_old, log_p_old_given_new)
 
 
-def _init_chain(seed, data, pairs_tensor, FPR, ADO, d_rng_id):
+def _init_chain(seed, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_id):
     #NOTE: This code was copied from Jeff's tree_sampler.py
 
     # Ensure each chain gets a new random state. I add chain index to initial
@@ -622,7 +589,6 @@ def _init_chain(seed, data, pairs_tensor, FPR, ADO, d_rng_id):
     # the valid range [0, 2**32).
     np.random.seed(seed % 2**32)
 
-    ##JB: Let's ignore this part for now and just choose the fully branched tree
     if np.random.uniform() < hparams.iota:
         init_adj = _init_cluster_adj_mutrels(pairs_tensor)
     else:
@@ -638,7 +604,7 @@ def _init_chain(seed, data, pairs_tensor, FPR, ADO, d_rng_id):
 
     init_anc = make_ancestral_from_adj(init_adj)
 
-    init_llh = _calc_tree_llh(data, init_anc, FPR, ADO, d_rng_id)
+    init_llh = _calc_tree_llh(data, init_anc, mut_ass, FPR, ADO, d_rng_id)
 
     init_samp = TreeSample(
         adj = init_adj,
@@ -648,7 +614,7 @@ def _init_chain(seed, data, pairs_tensor, FPR, ADO, d_rng_id):
     return init_samp
 
 
-def _run_chain(data, pairs_tensor, FPR, ADO, nsamples, thinned_frac, burnin, seed, d_rng_id, chain_status_queue=None, convergence_options=None):
+def _run_chain(data, pairs_tensor, mut_ass, FPR, ADO, nsamples, thinned_frac, burnin, seed, d_rng_id, chain_status_queue=None, convergence_options=None):
 
     assert nsamples > 0
     assert 0 < thinned_frac <= 1
@@ -662,7 +628,7 @@ def _run_chain(data, pairs_tensor, FPR, ADO, nsamples, thinned_frac, burnin, see
     #set some useful variables
     record_every = round(1 / thinned_frac)
     accepted = 0
-    new_samp = _init_chain(seed, data, pairs_tensor, FPR, ADO, d_rng_id)
+    new_samp = _init_chain(seed, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_id)
     old_samp = new_samp
     best_samp = new_samp
     samp_adjs = [new_samp.adj]
@@ -670,25 +636,19 @@ def _run_chain(data, pairs_tensor, FPR, ADO, nsamples, thinned_frac, burnin, see
     adj_mean = new_samp.adj
     adj_var = np.zeros(adj_mean.shape)
     for I in range(1, nsamples):
-        # s_t = time.time()
-        if convergence_options is not None:
-            if convergence_options["signal"].is_set() & (len(samp_llhs)*(1-burnin) >= convergence_options["min_samples"]):
-                #We have reached a point of convergence, so we can stop sampling trees early
-                break
+        if (convergence_options is not None) and convergence_options["signal"].is_set() and (len(samp_llhs)*(1-burnin) >= convergence_options["min_samples"]):
+            #We have reached a point of convergence, so we can stop sampling trees early
+            break
 
-        if chain_status_queue is not None:
-            chain_status_queue.put((adj_mean,adj_var))
-
-        # s = time.time()
         new_samp, log_p_new_given_old, log_p_old_given_new = _generate_new_sample(
             old_samp,
             data,
             pairs_tensor,
+            mut_ass,
             FPR,
             ADO,
             d_rng_id
         )
-        # print("Total time in _generate_new_sample:", time.time()-s)
 
         log_p_transition = (new_samp.llh - old_samp.llh) + (log_p_old_given_new - log_p_new_given_old)
         U = np.random.uniform()
@@ -704,17 +664,20 @@ def _run_chain(data, pairs_tensor, FPR, ADO, nsamples, thinned_frac, burnin, see
         if I % record_every == 0:
             samp_adjs.append(samp.adj)
             samp_llhs.append(samp.llh)
-            if (convergence_options is not None) & (I % convergence_options["check_every"] == 0):
+            
+        if (chain_status_queue is not None):
+            if (convergence_options is not None) and (I % convergence_options["check_every"] == 0):
                 n_samp = len(samp_adjs)
                 n_burned_samp = int(np.floor(n_samp*burnin))
                 samps_to_use = np.array(samp_adjs[n_burned_samp:])
                 adj_mean = np.mean(samps_to_use,axis=0)
                 adj_var  = np.var(samps_to_use,axis=0)
+                chain_status_queue.put((adj_mean,adj_var))
+            else:
+                chain_status_queue.put([])
         if accept:
             accepted += 1
         old_samp = samp
-
-        # print("Total time of the sample:", time.time()-s_t)
 
     if nsamples > 1:
         accept_rate = accepted / (nsamples - 1)
@@ -738,7 +701,6 @@ def _run_chain(data, pairs_tensor, FPR, ADO, nsamples, thinned_frac, burnin, see
         # results as you'd expect.
         expected_total_trees = 1 + math.floor((nsamples - 1) / record_every)
         assert len(samp_llhs) == expected_total_trees
-    
     return (
         best_samp,
         samp_adjs,
@@ -757,7 +719,7 @@ def gelman_rubin_convergence(chain_vars, chain_means, trees_per_chain, nchains):
     return np.sqrt(1. + B/(mean_wcv+_EPSILON))
 
 
-def sample_trees(sc_data, pairs_tensor, FPR, ADO, trees_per_chain, burnin, nchains, thinned_frac, seed, parallel, d_rng_id, convergence_options=None):
+def sample_trees(sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, burnin, nchains, thinned_frac, seed, parallel, d_rng_id, convergence_options=None):
     assert nchains > 0
     assert trees_per_chain > 0
     assert 0 <= burnin <= 1
@@ -795,7 +757,7 @@ def sample_trees(sc_data, pairs_tensor, FPR, ADO, trees_per_chain, burnin, nchai
                 for C in range(nchains):
                     # Ensure each chain's random seed is different from the seed used to
                     # seed the initial scPairtree invocation, yet nonetheless reproducible.
-                    jobs.append(ex.submit(_run_chain, sc_data, pairs_tensor, FPR, ADO, trees_per_chain, thinned_frac, burnin, seed + C + 1, d_rng_id, chain_status_queue[C], convergence_options))
+                    jobs.append(ex.submit(_run_chain, sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, thinned_frac, burnin, seed + C + 1, d_rng_id, chain_status_queue[C], convergence_options))
 
                 while True:
                     finished = 0
@@ -835,29 +797,33 @@ def sample_trees(sc_data, pairs_tensor, FPR, ADO, trees_per_chain, burnin, nchai
                                 raise exception
                             else:
                                 finished += 1
-
+                    
                     if finished == nchains:
                         break
 
-                    #While not checking if jobs are done, check if each chain has created a tree. If so, update the progressbar
+                    #Retrieve progress information from each chain, as stored in the queues.
+                    # If queue.get() results in an empty list, then we've simply sampled one more tree.
+                    # If queue.get() has two values, these are the mean and std of the adjacency matrices
+                    # of the trees sampled thus far. These can be used to determine if we have reached
+                    # convergence and thus can end tree sampling early.
+                    # Regardless of the returned value, we update the progress bar.
+                    # Note that queue.get() is weirdly slow, such that in low dimensions tree sampling is 
+                    # often faster than it. This means that the progress bar will often be behind the true
+                    # number of trees sampled and may not be at 100% when sampling finishes.
                     while time.perf_counter() - last_check < 1:
-                        try:
-                            # If there's something in the queue for us to retrieve, a child
-                            # process has sampled a tree.
-                            for C in range(nchains):
-                                update = chain_status_queue[C].get(timeout=1)
+                        for C in range(nchains):
+                            if not chain_status_queue[C].empty():
+                                update = chain_status_queue[C].get(block=False)
+                                pbar.update()
                                 if len(update) == 0:
                                     continue
                                 mn, vr = update
                                 n_sampled = n_sampled + 1
-                                pbar.update()
                                 chain_means[C,:,:] = mn
                                 chain_vars[C,:,:] = vr
-                        except queue.Empty:
-                            pass
                     
                     #Using the chain means and variances, determine if the chains have converged onto the posterior
-                    if (convergence_options is not None) & (n_sampled*(1-burnin)*thinned_frac >= nchains*convergence_options["min_samples"]) & (not convergence_options["signal"].is_set()):
+                    if (convergence_options is not None) and (n_sampled*(1-burnin)*thinned_frac >= nchains*convergence_options["min_samples"]) and (not convergence_options["signal"].is_set()):
                         gr_stat = gelman_rubin_convergence(chain_vars, chain_means, n_sampled*burnin, nchains)
                         conv_stat.append(gr_stat)
                         converged = np.all(np.abs(1. - gr_stat) < convergence_options["threshold"])
@@ -868,7 +834,7 @@ def sample_trees(sc_data, pairs_tensor, FPR, ADO, trees_per_chain, burnin, nchai
     else:
         results = []
         for C in range(nchains):
-            results.append(_run_chain(sc_data, pairs_tensor, FPR, ADO, trees_per_chain, thinned_frac, seed + C + 1, d_rng_id, None, None))
+            results.append(_run_chain(sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, thinned_frac, seed + C + 1, d_rng_id, None, None))
     merged_adj = []
     merged_llh = []
     accept_rates = []

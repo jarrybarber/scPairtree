@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
 import hyperparams
 from util import load_data
 from error_rate_estimator import estimate_error_rates
+from mutation_clusterer import cluster_mutations
 from pairs_tensor_constructor import construct_pairs_tensor
 from tree_sampler import sample_trees, compute_posterior
 from tree_plotter import plot_tree
@@ -33,14 +34,18 @@ def _parse_args():
 #     help='Print debugging messages')
     parser.add_argument('--seed', dest='seed', type=int,
         help='Integer seed used for pseudo-random number generator. Running scPairtree with the same seed on the same inputs will produce exactly the same result.')
+    parser.add_argument('--rerun', dest='rerun', action='store_true',
+        help='Regardless of whether this datafile has already been run, rerun all analysis.')
     parser.add_argument('--data-range', dest='d_rng_i', type=int, default=None,
         help='Data range id. There are 3 options: (0: [0,1]; 1: [0,1,3]; 2: [1,2,3])')
     parser.add_argument('--adr', dest='adr', type=float, default=None,
         help='Allelic dropout rate. If not set then will be estimated from the data.')
     parser.add_argument('--fpr', dest='fpr', type=float, default=None,
         help='False positive rate. If not set then will be estimated from the data.')
-    parser.add_argument('--rerun', dest='rerun', action='store_true',
-        help='Regardless of whether this datafile has already been run, rerun all analysis.')
+    parser.add_argument('--n-cluster-iter', dest='n_clust_iter', type=int, default=100,
+        help='Number of Gibbs iterations to perform during mutation clustering. Default: 100.')
+    parser.add_argument('--cluster-dir-alpha', dest='clust_dir_alpha', type=float, default=1.0,
+        help='Alpha paramater used in clustering for the cluster prior. Default: 1.')
     parser.add_argument('--variable-ado', dest='variable_ado', action='store_true',
         help='When estimating error rates, treat ADO as mutation specific. Else, ADO is treated as a global parameter for the entire dataset.')
     parser.add_argument('--parallel', dest='parallel', type=int, default=None,
@@ -56,7 +61,7 @@ def _parse_args():
     parser.add_argument('--thinned-frac', dest='thinned_frac', type=float, default=1,
         help='Proportion of non-burnin trees to write as output.')
     parser.add_argument('--convergence-threshold', dest='conv_thresh', type=float, default=None,
-        help='(Optional) Cutoff value at which convregence will be declared and tree sampling will be terminated.')
+        help='(Optional) Cutoff value at which convergence will be declared and tree sampling will be terminated.')
     parser.add_argument('--convergence-min-nsamples', dest='conv_min_samp', type=float, default=None,
         help='(Optional) Minimum number of samples required before convergence criteria is checked and allowed to terminate tree sampling.')
     parser.add_argument('--check-convergence-every', dest='check_conv_every', type=float, default=None,
@@ -82,7 +87,7 @@ def _init_hyperparams(args):
 def _get_default_args(args):
 
     if (args.fpr is not None) or (args.adr is not None):
-        if (args.fpr is not None) and (args.adr is not None):
+        if np.logical_xor((args.fpr is None), (args.adr is None)):
             raise Exception("Currently, scPairtree requires either both error rates to be set or neither to be set. Please set both:\n - --adr\n - --fpr")
         
     # Note that multiprocessing.cpu_count() returns number of logical cores, so
@@ -121,118 +126,66 @@ def _get_default_args(args):
     return parallel, tree_chains, seed, d_rng_i, convergence_options
 
 
-def run(data, d_rng_i, variable_ado, trees_per_chain, burnin, tree_chains, thinned_frac, seed, parallel, res):
+def run(data, rerun, d_rng_i, variable_ado, n_clust_iter, clust_dir_alpha, trees_per_chain, burnin, tree_chains, thinned_frac, seed, parallel, convergence_options, res, fpr=[], adr=[]):
     assert len(data.shape) == 2
-    n_muts, n_cells = data.shape
-    ### ESTIMATE THE ERROR RATES ###
-    print("Estimating error rates...")
-    err_rates, _ = estimate_error_rates(data.data, d_rng_i=d_rng_i, variable_ado=variable_ado)
-    FPRs, ADOs, _ = err_rates
-
-    ### CREATE THE PAIRS TENSOR ###
-    print("Constructing pairs tensor...")
-    pairs_tensor = construct_pairs_tensor(data.data, FPRs, ADOs, d_rng_i=d_rng_i, scale_integrand=True)
-    ### IF I COME UP WITH CO-CLUSTERING METHOD, INSERT HERE ###
-
-
-    ### SAMPLE TREES ###
-    print("Sampling trees...")
-    adjs, llhs, accept_rates = sample_trees(data.data, pairs_tensor, FPR=FPRs, ADO=ADOs, 
-        trees_per_chain=trees_per_chain, 
-        burnin=burnin, 
-        nchains=tree_chains, 
-        thinned_frac=thinned_frac, 
-        seed=seed, 
-        parallel=parallel,
-        d_rng_id=d_rng_i)
-
-    return 
-
-
-def main():
-    ### PARSE ARGUMENTS ###
-    args = _parse_args()
-
-
-    ### CREATE OBJECT WHICH CAN SAVE THE RESULTS OF THIS RUN ###
-    res = Results(args.results_fn)
-    if res.has("scp_args") and not args.rerun:
-        print("sc_pairtree already run using this results filename. Overriding current arguments with previous arguments to avoid overwriting previous results.")
-        d = vars(args)
-        old_args = res.get("scp_args")
-        for k,v in old_args.items():
-            d[k] = v
-        # parallel, tree_chains, seed, d_rng_i = (old_args.parallel, old_args.tree_chains, old_args.seed, old_args.d_rng_i)
-    else:
-        ### SET DEFAULT ARGUMENTS ###
-        args.parallel, args.tree_chains, args.seed, args.d_rng_i, convergence_options = _get_default_args(args) 
-        res.add("scp_args",vars(args))
-    
-    # #Leaving this here temporarily so I can update some zip files lazily
-    # args.parallel, args.tree_chains, args.seed, args.d_rng_i, convergence_options = _get_default_args(args) 
-    # res.add("scp_args",vars(args))
-
-    _init_hyperparams(args)
-    np.random.seed(args.seed)
-    random.seed(args.seed)
-
-    
-    ### LOAD IN THE DATA ###
-    if res.has("data") and not args.rerun:
-        data = res.get("data")
-    else:
-        data, gene_names = load_data(args.data_fn)
-        res.add("data",data)
-        res.add("gene_names", gene_names)
-        res.save()
-        
 
     ### ESTIMATE THE ERROR RATES ###
-    if res.has("est_FPRs") and res.has("est_ADOs") and not args.rerun:
+    if res.has("est_FPRs") and res.has("est_ADOs") and not rerun:
         fpr = res.get("est_FPRs")
         adr = res.get("est_ADOs")
-    elif (args.fpr is not None) and (args.adr is not None):
+    elif (fpr is not None) and (adr is not None):
         print("Error rates input, no estimation required...")
-        fpr = args.fpr
-        adr = args.adr
+        if np.isscalar(fpr):
+            fpr = np.full(data.shape[0],fpr)
+        if np.isscalar(adr):
+            adr = np.full(data.shape[0],adr)
     else:
         print("Estimating error rates...")
         s = time.time()
-        err_rates, _ = estimate_error_rates(data, d_rng_i=args.d_rng_i, variable_ado=args.variable_ado)
+        err_rates, _ = estimate_error_rates(data, d_rng_i=d_rng_i, variable_ado=variable_ado)
         fpr, adr, _ = err_rates
         res.add("est_runtime", time.time()-s)
         res.add("est_FPRs", fpr)
         res.add("est_ADOs", adr)
         res.save()
     
+    ### CLUSTER MUTATIONS ###
+    if res.has("mutation_cluster_assignments") and not rerun:
+        mutation_cluster_assignments = res.get("mutation_cluster_assignments")
+    else:
+        mutation_cluster_assignments = cluster_mutations(data, fpr, adr, n_clust_iter, burnin, clust_dir_alpha, d_rng_i, ret_all_iters=False)
+        res.add("mutation_cluster_assignments",mutation_cluster_assignments)
 
     ### CONSTRUCT THE PAIRS TENSOR ###
-    if res.has("pairs_tensor") and not args.rerun:
+    if res.has("pairs_tensor") and not rerun:
         pairs_tensor = res.get("pairs_tensor")
     else:
         print("Constructing pairs tensor...")
         s = time.time()
-        pairs_tensor = construct_pairs_tensor(data, fpr, adr, d_rng_i=args.d_rng_i, scale_integrand=True)
+        pairs_tensor = construct_pairs_tensor(data, fpr, adr, d_rng_i=d_rng_i, clst_ass=mutation_cluster_assignments-1, scale_integrand=True)
         res.add("pairs_tensor_runtime", time.time()-s)
         res.add("pairs_tensor", pairs_tensor)
         res.save()
 
     ### SAMPLE TREES ###
-    if res.has("adj_mats") and not args.rerun:
+    if res.has("adj_mats") and not rerun:
         adjs = res.get("adj_mats")
         llhs = res.get("tree_llhs")
         accept_rates = res.get("accept_rates")
     else:
         print("Sampling trees...")
         s = time.time()
-        best_tree, adjs, llhs, accept_rates, chain_n_samples, conv_stat = sample_trees(data, pairs_tensor, FPR=fpr, ADO=adr, 
-            trees_per_chain=args.trees_per_chain, 
-            burnin=args.burnin, 
-            nchains=args.tree_chains, 
-            thinned_frac=args.thinned_frac, 
-            seed=args.seed, 
-            parallel=args.parallel,
-            d_rng_id=args.d_rng_i,
+        best_tree, adjs, llhs, accept_rates, chain_n_samples, conv_stat = sample_trees(data, pairs_tensor, 
+            mutation_cluster_assignments,
+            FPR=fpr, 
+            ADO=adr, 
+            trees_per_chain=trees_per_chain, 
+            burnin=burnin, 
+            nchains=tree_chains, 
+            thinned_frac=thinned_frac, 
+            seed=seed, 
+            parallel=parallel,
+            d_rng_id=d_rng_i,
             convergence_options=convergence_options)
         res.add("sampling_time", time.time()-s)
         res.add("adj_mats", np.array(adjs))
@@ -258,6 +211,61 @@ def main():
     res.add('prob', post_prob)
     res.save()
 
+
+    return 
+
+
+def main():
+    ### PARSE ARGUMENTS ###
+    args = _parse_args()
+
+
+    ### CREATE OBJECT WHICH CAN SAVE THE RESULTS OF THIS RUN ###
+    res = Results(args.results_fn)
+    if res.has("scp_args") and not args.rerun:
+        print("sc_pairtree already run using this results filename. Overriding current arguments with previous arguments to avoid overwriting previous results.")
+        d = vars(args)
+        old_args = res.get("scp_args")
+        for k,v in old_args.items():
+            d[k] = v
+    else:
+        ### SET DEFAULT ARGUMENTS ###
+        args.parallel, args.tree_chains, args.seed, args.d_rng_i, args.convergence_options = _get_default_args(args) 
+        res.add("scp_args",vars(args))
+    
+
+    _init_hyperparams(args)
+    np.random.seed(args.seed)
+    random.seed(args.seed)
+
+    
+    ### LOAD IN THE DATA ###
+    if res.has("data") and not args.rerun:
+        data = res.get("data")
+    else:
+        data, gene_names = load_data(args.data_fn)
+        res.add("data",data)
+        res.add("gene_names", gene_names)
+        res.save()
+
+    ### RUN SCPAIRTREE ###
+    run(data,
+        rerun = args.rerun,
+        d_rng_i = args.d_rng_i,
+        variable_ado = args.variable_ado, 
+        n_clust_iter = args.n_clust_iter,
+        clust_dir_alpha = args.clust_dir_alpha,
+        trees_per_chain = args.trees_per_chain, 
+        burnin = args.burnin, 
+        tree_chains = args.tree_chains, 
+        thinned_frac = args.thinned_frac, 
+        seed = args.seed, 
+        parallel = args.parallel, 
+        convergence_options = args.convergence_options,
+        res = res,
+        fpr = args.fpr,
+        adr = args.adr)
+        
 
     return
 
