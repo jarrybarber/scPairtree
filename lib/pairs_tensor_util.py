@@ -5,6 +5,15 @@ from common import Models, DataRangeIdx, DataRange
 
 ISCLOSE_TOLERANCE = 1e-8
 
+@njit(cache=True)
+def p_model(model, inc_cocluster=False):
+    pm = -1
+    if inc_cocluster:
+        pm = 1/4
+    else:
+        pm = 1/3
+    return pm
+
 @njit('f8(i1,f8,f8)', cache=True)
 def p_phi_given_model(model, phi_a, phi_b): #P(phi|M)
     
@@ -131,7 +140,7 @@ def p_data_given_truth_and_errors(d, t, fpr, ado, d_rng_i=DataRangeIdx.ref_var_n
 @njit('f8(i1,i1,i1,f8,f8)', cache=True)
 def p_trueDat_given_model_and_phis(t1,t2,model,phi1,phi2):
     if model==Models.cocluster:
-        if (phi1 != phi2) | (t1 != t2):
+        if (np.abs(phi1-phi2) > ISCLOSE_TOLERANCE) or (t1 != t2):
             to_ret = 0
         elif t1==0:
             to_ret = 1-phi1
@@ -179,7 +188,7 @@ def p_trueDat_given_model_and_phis(t1,t2,model,phi1,phi2):
     return to_ret 
 
 @njit(cache=True)
-def _log_model_posterior(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, d_rng):
+def _log_p_data_given_model_phis_and_errors(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, d_rng):
     phi_pri = p_phi_given_model(model, phi_a, phi_b)
     if phi_pri==0:
         return -np.inf
@@ -193,12 +202,46 @@ def _log_model_posterior(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b,
                     to_sum += p_data_given_truth_and_errors(d_i,t_n,fpr_a,ado_a,d_rng_i) * \
                               p_data_given_truth_and_errors(d_j,t_m,fpr_b,ado_b,d_rng_i) * \
                               p_trueDat_given_model_and_phis(t_n,t_m,model,phi_a,phi_b)
-                                
+
             log_post += pairwise_occurances[i,j] * np.log(to_sum)
     
     return log_post
 
-def log_model_posterior(model,pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i):
+@njit(cache=True)
+def _log_p_cluster_data_given_model_phis_and_errors(model, pairwise_occurances, clust1, clust2, clust_ass, phi1, phi2, fprs, ados, d_rng_i, d_rng):
+    # Not sure what I would do when considering relationships between
+    # a cluster and itself. We can get a value, sure, but I don't think
+    # it's useful
+    assert clust1 != clust2
+    phi_pri = p_phi_given_model(model, phi1, phi2)
+    if phi_pri==0:
+        return -np.inf
+
+    clust1_muts = np.flatnonzero(clust_ass==clust1)
+    clust2_muts = np.flatnonzero(clust_ass==clust2)
+    log_p = np.log(phi_pri)
+    for m1 in clust1_muts:
+        for m2 in clust2_muts:
+            assert m1 != m2
+            log_p = log_p + _log_p_data_given_model_phis_and_errors(model, pairwise_occurances[:,:,m1,m2], fprs[m1], fprs[m2], ados[m1], ados[m2], phi1, phi2, d_rng_i, d_rng)
+    log_p = log_p - np.log(phi_pri)*len(clust1_muts)*len(clust1_muts) #The prior only needs to be used once. Each call to log_p_data_given.. has the prior mult on it, so remove each extra instance of it.
+    return log_p
+
+
+def log_p_cluster_data_given_model_phis_and_errors(model, pairwise_occurances, clust1, clust2, clust_ass, phi1, phi2, fprs, ados, d_rng_i):
+    d_rng = DataRange[d_rng_i]
+    assert len(pairwise_occurances.shape) == 4
+    assert pairwise_occurances.shape[0] == pairwise_occurances.shape[1]
+    assert pairwise_occurances.shape[0] == len(d_rng)
+    assert pairwise_occurances.shape[2] == pairwise_occurances.shape[3]
+    assert pairwise_occurances.shape[2] == len(clust_ass)
+    return _log_p_cluster_data_given_model_phis_and_errors(model, pairwise_occurances, clust1, clust2, clust_ass, phi1, phi2, fprs, ados, d_rng_i, d_rng)
+
+def p_cluster_data_given_model_phis_and_errors(model, pairwise_occurances, clust1, clust2, clust_ass, phi1, phi2, fprs, ados, d_rng_i, scale=0):
+    post = np.exp(log_p_cluster_data_given_model_phis_and_errors(model, pairwise_occurances, clust1, clust2, clust_ass, phi1, phi2, fprs, ados, d_rng_i) - scale)
+    return post
+
+def log_p_data_given_model_phis_and_errors(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i):
     # d_set=set of possible d values. Note that this can be either (0,1), [(0,1,3)] or (0,1,2,3)
     #   if d_set=0 then we're using possible data (0,1) and
     #       0: no variant detected
@@ -215,13 +258,12 @@ def log_model_posterior(model,pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, p
     #NOTE: I know that this way of setting d_set is annoying, but passing in an array into numba and performing checks on it make numba slow waaaaaay down. Think it has to make some functional calls to python...
     d_rng = DataRange[d_rng_i]
     
-    #Note: these assertions don't seem to slow down runtime at all
     assert len(pairwise_occurances.shape)==2
     assert pairwise_occurances.shape[0] == pairwise_occurances.shape[1]
     assert pairwise_occurances.shape[0] == len(d_rng)
     
-    return _log_model_posterior(model,pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, d_rng)
+    return _log_p_data_given_model_phis_and_errors(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, d_rng)
 
-def model_posterior(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, scale=0):
-    post = np.exp(log_model_posterior(model,pairwise_occurances,fpr_a,fpr_b,ado_a,ado_b,phi_a,phi_b,d_rng_i) - scale)
+def p_data_given_model_phis_and_errors(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, scale=0):
+    post = np.exp(log_p_data_given_model_phis_and_errors(model,pairwise_occurances,fpr_a,fpr_b,ado_a,ado_b,phi_a,phi_b,d_rng_i) - scale)
     return post

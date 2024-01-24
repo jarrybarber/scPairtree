@@ -56,12 +56,12 @@ def calc_importance_sampling_pairs_tensor(samples, ps, gs):
     return res
 
 
-def calc_some_importance_sampling_values(samples, samp_probs, data, fprs, ados):
+def calc_some_importance_sampling_values(samples, samp_probs, data, fprs, ados, verbose=True):
     n_samples = samples.shape[0]
     n_mut = samples.shape[1]
     llhs = np.zeros(n_samples)
     for i in range(n_samples):
-        if i % int(n_samples/20) == 0:
+        if verbose and i % int(n_samples/20) == 0:
             print(i, "/", n_samples)
         adj = convert_parents_to_adjmatrix(samples[i,:])
         anc = convert_adjmatrix_to_ancmatrix(adj)
@@ -70,17 +70,18 @@ def calc_some_importance_sampling_values(samples, samp_probs, data, fprs, ados):
     ratios = llhs - samp_probs
     ratios = np.exp(ratios - np.max(ratios))
 
-    IS_anc_mat = np.zeros((n_mut, n_mut))
-    IS_adj_mat = np.zeros((n_mut, n_mut))
+    IS_anc_mat = np.zeros((n_mut+1, n_mut+1))
+    IS_adj_mat = np.zeros((n_mut+1, n_mut+1))
     for i in range(n_samples):
-        if i % int(n_samples/20) == 0:
-            print(i, "/", n_samples)
         adj = convert_parents_to_adjmatrix(samples[i,:])
         anc = convert_adjmatrix_to_ancmatrix(adj)
         
         IS_adj_mat += adj*ratios[i]
         IS_anc_mat += anc*ratios[i]
     
+    IS_adj_mat = IS_adj_mat/n_samples
+    IS_anc_mat = IS_anc_mat/n_samples
+
     return llhs, IS_adj_mat, IS_anc_mat
 
     

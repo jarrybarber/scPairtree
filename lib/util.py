@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from numba import njit
+from numba import njit, jit
 from scipy.special import loggamma, logsumexp
 from collections import namedtuple
 
@@ -23,6 +23,11 @@ DATA_DIR = os.path.join(BASE_DIR,"data")
 OUT_DIR  = os.path.join(BASE_DIR,"out")
 RUNS_DIR = os.path.join(BASE_DIR,"runs")
 
+#I will be calcuating these values a lot, and it will be faster to store their values in a list
+_MAX_NCELLS = 100000
+LOG_FACTORIALS = np.zeros(_MAX_NCELLS, dtype=np.float)
+for j in range(2,_MAX_NCELLS):
+    LOG_FACTORIALS[j] = np.log(j) + LOG_FACTORIALS[j-1]
 
 def load_data(fn, data_dir=None):
     #Loads a data file without column or row labels.
@@ -53,18 +58,40 @@ def load_sim_data(fn):
             count += 1
     return _Data(data=np.array(data),n_snvs=len(data),n_cells=len(data[0]),snv_ids=snv_ids)
 
-def determine_all_pairwise_occurance_counts(data, d_rng_i):
+
+def determine_all_cluster_pair_occurance_counts(data, clust_ass, d_rng_i):
+    clusts = np.unique(clust_ass)
+    n_clust = len(clusts)
+    n_dtype = len(DataRange[d_rng_i])
+    mut_pairwise_occurances, _ = determine_all_mutation_pair_occurance_counts(data,d_rng_i)
+
+    clust_pairwise_occurances = np.zeros((n_dtype,n_dtype,n_clust,n_clust),dtype=int)
+    for i,clst_i in enumerate(clusts):
+        for j,clst_j in enumerate(clusts):
+            clst_i_muts = np.flatnonzero(clust_ass==clst_i)
+            clst_j_muts = np.flatnonzero(clust_ass==clst_j)
+            for mut_a in clst_i_muts:
+                for mut_b in clst_j_muts:
+                    if mut_a==mut_b:
+                        continue
+                    clust_pairwise_occurances[:,:,i,j] += mut_pairwise_occurances[:,:,mut_a,mut_b]
+            if clst_i == clst_j:
+                clust_pairwise_occurances[range(n_dtype),range(n_dtype),i,j] = clust_pairwise_occurances[range(n_dtype),range(n_dtype),i,j] / 2
+    return clust_pairwise_occurances
+
+
+def determine_all_mutation_pair_occurance_counts(data, d_rng_i):
     dat_vals = DataRange[d_rng_i]
-    pairwise_occurances = np.swapaxes(np.array([[determine_pairwise_occurance_counts(data, [i,j]) for i in dat_vals] for j in dat_vals]),0,1)
+    pairwise_occurances = np.swapaxes(np.array([[determine_mutation_pair_occurance_counts(data, [i,j]) for i in dat_vals] for j in dat_vals]),0,1)
 
     return pairwise_occurances, dat_vals
 
 
-def determine_pairwise_occurance_counts(data,pair_val):
+def determine_mutation_pair_occurance_counts(data,pair_val):
     # This will take data of the form nMuts x nCells and a pair value and determine 
     # the counts of the pair value across every possible pair. E.g., how many times 
     # a [1 0] or a [0,3] occurs in the data for a mutation pair
-    assert len(pair_val)==2
+    assert len(pair_val) == 2
     assert pair_val[0] in (0,1,2,3)
     assert pair_val[1] in (0,1,2,3)
     #First, we need separate boolean matricies for each condition
@@ -76,17 +103,15 @@ def determine_pairwise_occurance_counts(data,pair_val):
     return count_mat.astype(int)
 
 @njit(cache=True)
-def convert_adjmatrix_to_ancmatrix(adj, check_validity=False):
+def convert_adjmatrix_to_ancmatrix(adj):
     #Note: taken from Jeff's util code.
     K = len(adj)
     root = 0
 
-    if check_validity:
-        # By default, disable checks to improve performance.
-        assert np.all(1 == np.diag(adj))
-        expected_sum = 2 * np.ones(K)
-        expected_sum[root] = 1
-        assert np.array_equal(expected_sum, np.sum(adj, axis=0))
+    assert np.all(1 == np.diag(adj))
+    expected_sum = 2 * np.ones(K)
+    expected_sum[root] = 1
+    assert np.array_equal(expected_sum, np.sum(adj, axis=0))
 
     Z = np.copy(adj)
     # np.fill_diagonal(Z, 0)
@@ -106,18 +131,15 @@ def convert_adjmatrix_to_ancmatrix(adj, check_validity=False):
         Z[:,C] = np.expand_dims(C_anc, 1)
         stack += list(C)
     
-    # np.fill_diagonal(Z, 1)
     for i in range(Z.shape[0]):
         Z[i,i] = 1
-        
-    if check_validity:
-        assert np.array_equal(Z[root], np.ones(K))
+    assert np.array_equal(Z[root], np.ones(K))
+    
     return Z
 
 
 @njit(cache=True)
 def convert_ancmatrix_to_adjmatrix(anc):
-
     this_anc = np.copy(anc)
     for i in range(this_anc.shape[0]):
         this_anc[i,i] = 0
@@ -185,14 +207,40 @@ def convert_adjmatrix_to_parents(adj):
     return parents#np.argmax(adj[:,1:], axis=0)
 
 
+#I don't remember writing the below functions (convert nodadj to mutadj and vice versa)
+#What it should do seems obvious enough from the names, but in practice don't work
+#because node_adj and mut_adj should NOT have the same dimensions... 
+# I'm guessing this was important when I didn't do any clustering and so nMut = nNode, 
+#but now will need to be updated or at least deleted.
+# def convert_nodeadj_to_mutadj(node_adj, mut_assignments):
+#     print(len(mut_assignments),node_adj.shape[0]-1)
+#     assert len(mut_assignments) == node_adj.shape[0]-1
+#     mutadj = np.zeros(node_adj.shape,dtype=int)
+#     mut_assignments = np.append(0,mut_assignments)
+#     node_assignments = np.zeros(mut_assignments.shape,dtype=int)
+#     for i,a in enumerate(mut_assignments):
+#         node_assignments[a] = i
+#     for par, chld in np.argwhere(node_adj):
+#         mutadj[node_assignments[par], node_assignments[chld]] = 1
+#     return mutadj
+
+
+# def convert_mutadj_to_nodeadj(mut_adj, mut_assignments):
+#     assert len(mut_assignments) == mut_adj.shape[0]-1
+#     node_adj = np.zeros(mut_adj.shape,dtype=int)
+#     mut_assignments = np.append(0,mut_assignments)
+#     for par, chld in np.argwhere(mut_adj):
+#         node_adj[mut_assignments[par], mut_assignments[chld]] = 1
+#     return node_adj
+
+
 @njit(cache=True)
-def compute_node_relations(adj, check_validity=False):
+def compute_node_relations(adj):
     #Note: taken from Jeff's util code.
     #May make sense to move somewhere else... Perhaps some tree or pairs tensor util.
     K = len(adj)
-    anc = convert_adjmatrix_to_ancmatrix(adj, check_validity)
-    # np.fill_diagonal(anc, 0)
-    for i in range(anc.shape[0]): #better for numba
+    anc = convert_adjmatrix_to_ancmatrix(adj)
+    for i in range(anc.shape[0]): 
         anc[i,i] = 0
 
     R = np.full((K, K), Models.diff_branches, dtype=np.int8)
@@ -205,17 +253,14 @@ def compute_node_relations(adj, check_validity=False):
                 
     for i in range(K):
         R[i,i] = Models.cocluster
-
-    if check_validity:
-        assert np.all(R[0]   == Models.A_B)
-        assert np.all(R[:,0] == Models.B_A)
+    assert np.all(R[1:,0] == Models.B_A)
     return R
 
 def calc_tensor_prob(tensor):
     #Should be 3 axis: 1st for models, 2nd and 3rd for SNV comps
     #I assume all values are logged.
     assert not np.any(tensor==0)
-    return np.sum(logsumexp(tensor,axis=0))
+    return np.sum(numba_logsumexp(tensor,axis=0))
 
 @njit(cache=True)
 def softmax(V):
@@ -231,6 +276,11 @@ def softmax(V):
     smax /= np.sum(smax)
     #assert np.isclose(np.sum(smax), 1)
     return smax
+
+@njit(cache=True)
+def log_factorial(i):
+    assert i < len(LOG_FACTORIALS)
+    return LOG_FACTORIALS[i]
 
 @njit(cache=True)
 def isclose(a,b,atol=1e-8,rtol=1e-5):
@@ -270,28 +320,14 @@ def remove_rowcol(arr, indices):
     assert np.array_equal(arr.shape, shape)
     return arr
 
-# From Jeff <3 (Not used at the moment. Still using scipy for logsumexp and loggamma)
 @njit(cache=True)
-def logsumexp(V, axis=None):
+def numba_logsumexp(V):
+    #This does not support an `axis` argument. Just flattens any input vector and acts on the whole thing
     B = np.max(V)
-    # Explicitly checking `axis` is necessary for Numba, which doesn't support
-    # `axis=None` in calling `np.sum()`.
-    if axis is None:
-      # Avoid NaNs when inputs are all -inf.
-      # Numba doesn't support `np.isneginf`, alas.
-      if np.isinf(B) and B < 0:
+    # Avoid NaNs when inputs are all -inf.
+    # Numba doesn't support `np.isneginf`, alas.
+    if np.isinf(B) and B < 0:
         return B
-      summed = np.sum(np.exp(V - B))
-    else:
-      # NB: this is suboptimal, since we should call `np.max(V, axis)`, but Numba
-      # doesn't yet support the axis argument. So, we end up using the scalar
-      # maximum across the entire array, not the vector maximum across the axis.
-      #
-      # NB part deux: if all the elements across one axis of the array are -inf,
-      # this will break and return NaN, when it should instead return -inf. So
-      # long as `np.max(..., axis)` isn't supported in Numba, this is non-trivial
-      # to fix.
-      summed = np.sum(np.exp(V - B), axis)
-      B = np.ones(summed.shape)
+    summed = np.sum(np.exp(V - B))
     log_sum = B + np.log(summed)
     return log_sum
