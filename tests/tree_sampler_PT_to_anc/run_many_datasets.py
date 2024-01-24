@@ -21,9 +21,10 @@ from pairs_tensor_plotter import plot_raw_scores
 
 
 def main():
-    n_muts = [10, 25, 50, 100]#, 200, 500, 1000]
+    # n_muts = [100, 200, 500]
     # n_muts = [200, 500, 1000]
-    n_cell_facts = [5, 10, 20]
+    n_muts = [500, 1000]
+    n_cell_facts = [2, 5, 10, 20]
     fprs = [0.0001, 0.001, 0.01]
     ados = [0.1, 0.3, 0.5]
     n_samples = 100000
@@ -207,61 +208,27 @@ def main():
                 plt.savefig(os.path.join(figdir, "pairs_tens_comp.png"))
                 plt.close()
 
-                plt.figure(figsize=(6,5))
-                # plt.subplot(1,2,1)
-                # plt.imshow(anc_mat)
-                # plt.title("Actual anc mat")
-                # plt.subplot(1,2,2)
-                # plt.imshow(IS_anc_mat)
-                # plt.title("Importance sampling anc mat")
-                #Haaaaaaack
-                IS_anc_mat = IS_anc_mat/IS_anc_mat[0,0]
-                toplt = anc_mat - IS_anc_mat
-                plt_range = 1#np.max([np.abs(np.min(toplt)), np.abs(np.max(toplt))])
-                plt.imshow(toplt, vmin=-plt_range, vmax=plt_range)
-                plt.title("Error of IS estimated ancestry matrix")
-                plt.colorbar()
-                plt.savefig(os.path.join(figdir, figdir, "anc_mat_comp.png"))
+                # IS_anc_mat = tree_sampler_PT_to_anc.calc_importance_sampling_matrix(ancs,llhs,samp_probs)
+                plt.figure(figsize=(8,4))
+                plt.subplot(1,2,1)
+                plt.imshow(anc_mat)
+                plt.title("Actual anc mat")
+                plt.subplot(1,2,2)
+                plt.imshow(IS_anc_mat)
+                plt.title("Importance sampling anc mat")
+                plt.savefig(os.path.join( figdir, "anc_mat_comp.png"))
                 plt.close()
 
                 # IS_adj_mat = tree_sampler_PT_to_anc.calc_importance_sampling_matrix(adjs,llhs,samp_probs)
-                plt.figure(figsize=(6,5))
-                # plt.subplot(1,2,1)
-                # plt.imshow(adj_mat)
-                # plt.title("Actual adj mat")
-                # plt.subplot(1,2,2)
-                # plt.imshow(IS_adj_mat)
-                # plt.title("Importance sampling adj mat")
-                IS_adj_mat = IS_adj_mat/IS_adj_mat[0,0]
-                toplt = adj_mat - IS_adj_mat
-                plt_range = 1#np.max([np.abs(np.min(toplt)), np.abs(np.max(toplt))])
-                plt.imshow(toplt, vmin=-plt_range, vmax=plt_range)
-                plt.title("Error of IS estimated adjacency matrix")
-                plt.colorbar()
-                plt.savefig(os.path.join(figdir, figdir, "adj_mat_comp.png"))
+                plt.figure(figsize=(8,4))
+                plt.subplot(1,2,1)
+                plt.imshow(adj_mat)
+                plt.title("Actual adj mat")
+                plt.subplot(1,2,2)
+                plt.imshow(IS_adj_mat)
+                plt.title("Importance sampling adj mat")
+                plt.savefig(os.path.join(figdir, "adj_mat_comp.png"))
                 plt.close()
-
-                plt.figure(figsize=(6,5))
-                #Haaaaaaack
-                PTN_IS_anc_mat = PTN_IS_anc_mat/PTN_IS_anc_mat[0,0]
-                toplt = anc_mat - PTN_IS_anc_mat
-                plt_range = 1#np.max([np.abs(np.min(toplt)), np.abs(np.max(toplt))])
-                plt.imshow(toplt, vmin=-plt_range, vmax=plt_range)
-                plt.title("Error of PTN IS estimated ancestry matrix")
-                plt.colorbar()
-                plt.savefig(os.path.join(figdir, figdir, "PTN_anc_mat_comp.png"))
-                plt.close()
-
-                plt.figure(figsize=(6,5))
-                PTN_IS_adj_mat = PTN_IS_adj_mat/PTN_IS_adj_mat[0,0]
-                toplt = adj_mat - PTN_IS_adj_mat
-                plt_range = 1#np.max([np.abs(np.min(toplt)), np.abs(np.max(toplt))])
-                plt.imshow(toplt, vmin=-plt_range, vmax=plt_range)
-                plt.title("Error of PTN IS estimated adjacency matrix")
-                plt.colorbar()
-                plt.savefig(os.path.join(figdir, figdir, "PTN_adj_mat_comp.png"))
-                plt.close()
-
 
                 # I want to see if I can plot the sampler converging on an answer. To try this I am going to,
                 # over time, split the samples into 10, and calculate the IS adj mat for each. I will then
@@ -284,7 +251,7 @@ def main():
                 plt.plot(x,np.log(max_vars))
                 plt.xlabel("Sampling point")
                 plt.ylabel("log(max variance) of mut_pair parantage across {} bins".format(n_bins))
-                plt.savefig(os.path.join(figdir, figdir, "convergence_plot.png"))
+                plt.savefig(os.path.join(figdir, "convergence_plot.png"))
                 plt.close()
 
                 plt.figure(figsize=(25,10))
@@ -292,7 +259,7 @@ def main():
                 for b in range(n_bins):
                     plt.subplot(2,5,b+1)
                     plt.imshow(bin_adj_mats[b,:,:]/n_checks,vmin=plt_rng[0],vmax=plt_rng[1])
-                plt.savefig(os.path.join(figdir, figdir, "final_binned_IS_adjmats.png"))
+                plt.savefig(os.path.join(figdir, "final_binned_IS_adjmats.png"))
                 plt.close()
 
                 plt.figure(figsize=(25,10))
@@ -301,7 +268,7 @@ def main():
                     plt.subplot(2,5,b+1)
                     plt.imshow(np.abs(IS_adj_mat - bin_adj_mats[b,:,:]/n_checks),vmin=plt_rng[0],vmax=plt_rng[1])
                     plt.title("Max error: {}".format(np.max(np.abs(IS_adj_mat - bin_adj_mats[b,:,:]/n_checks))))
-                plt.savefig(os.path.join(figdir, figdir, "binned_IS_adjmats_error.png"))
+                plt.savefig(os.path.join(figdir, "binned_IS_adjmats_error.png"))
                 plt.close()
 
                 # max_vars = np.zeros(n_checks)
@@ -325,14 +292,14 @@ def main():
                 # plt.savefig(os.path.join(figdir, figdir, "convergence_plot.png"))
                 # plt.close()
 
-                with open(os.path.join(resdir,"info.txt"),'w') as f:
+                with open(os.path.join(figdir,"info.txt"),'w') as f:
                     f.writelines("Sample distribution coverage: {}\n".format(sample_pdist_cov))
                     f.writelines("True tree posterior coverage: {}\n".format(post_pdist_cov))
                     f.writelines("# samples better than truth: {}\n".format(n_better_actual))
                     f.writelines("Time pairs tensor: {}\n".format(pt_time))
                     f.writelines("Time sampling: {}\n".format(samp_time))
                     f.writelines("Time conversions: {}\n".format(IS_calc_time))
-                # return
+                
 
 
     return

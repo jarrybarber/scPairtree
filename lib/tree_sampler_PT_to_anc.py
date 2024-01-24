@@ -76,8 +76,10 @@ def calc_some_importance_sampling_values(samples, samp_probs, data, fprs, ados, 
         adj = convert_parents_to_adjmatrix(samples[i,:])
         anc = convert_adjmatrix_to_ancmatrix(adj)
         
-        IS_adj_mat += adj*ratios[i]
-        IS_anc_mat += anc*ratios[i]
+        # print(IS_adj_mat)
+        # print(adj)
+        IS_adj_mat = IS_adj_mat + adj*ratios[i]
+        IS_anc_mat = IS_anc_mat + anc*ratios[i]
     
     IS_adj_mat = IS_adj_mat/n_samples
     IS_anc_mat = IS_anc_mat/n_samples

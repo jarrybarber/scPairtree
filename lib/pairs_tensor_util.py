@@ -1,7 +1,6 @@
 import numpy as np
 from numba import njit
-from common import Models, DataRangeIdx, DataRange
-
+from common import Models, DataRangeIdx, DataRange, get_d_range
 
 ISCLOSE_TOLERANCE = 1e-8
 
@@ -188,7 +187,8 @@ def p_trueDat_given_model_and_phis(t1,t2,model,phi1,phi2):
     return to_ret 
 
 @njit(cache=True)
-def _log_p_data_given_model_phis_and_errors(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, d_rng):
+def _log_p_data_given_model_phis_and_errors(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i):
+    d_rng = get_d_range(d_rng_i)
     phi_pri = p_phi_given_model(model, phi_a, phi_b)
     if phi_pri==0:
         return -np.inf
@@ -208,7 +208,7 @@ def _log_p_data_given_model_phis_and_errors(model, pairwise_occurances, fpr_a, f
     return log_post
 
 @njit(cache=True)
-def _log_p_cluster_data_given_model_phis_and_errors(model, pairwise_occurances, clust1, clust2, clust_ass, phi1, phi2, fprs, ados, d_rng_i, d_rng):
+def _log_p_cluster_data_given_model_phis_and_errors(model, pairwise_occurances, clust1, clust2, clust_ass, phi1, phi2, fprs, ados, d_rng_i):
     # Not sure what I would do when considering relationships between
     # a cluster and itself. We can get a value, sure, but I don't think
     # it's useful
@@ -223,7 +223,7 @@ def _log_p_cluster_data_given_model_phis_and_errors(model, pairwise_occurances, 
     for m1 in clust1_muts:
         for m2 in clust2_muts:
             assert m1 != m2
-            log_p = log_p + _log_p_data_given_model_phis_and_errors(model, pairwise_occurances[:,:,m1,m2], fprs[m1], fprs[m2], ados[m1], ados[m2], phi1, phi2, d_rng_i, d_rng)
+            log_p = log_p + _log_p_data_given_model_phis_and_errors(model, pairwise_occurances[:,:,m1,m2], fprs[m1], fprs[m2], ados[m1], ados[m2], phi1, phi2, d_rng_i)
     log_p = log_p - np.log(phi_pri)*len(clust1_muts)*len(clust1_muts) #The prior only needs to be used once. Each call to log_p_data_given.. has the prior mult on it, so remove each extra instance of it.
     return log_p
 
@@ -235,7 +235,7 @@ def log_p_cluster_data_given_model_phis_and_errors(model, pairwise_occurances, c
     assert pairwise_occurances.shape[0] == len(d_rng)
     assert pairwise_occurances.shape[2] == pairwise_occurances.shape[3]
     assert pairwise_occurances.shape[2] == len(clust_ass)
-    return _log_p_cluster_data_given_model_phis_and_errors(model, pairwise_occurances, clust1, clust2, clust_ass, phi1, phi2, fprs, ados, d_rng_i, d_rng)
+    return _log_p_cluster_data_given_model_phis_and_errors(model, pairwise_occurances, clust1, clust2, clust_ass, phi1, phi2, fprs, ados, d_rng_i)
 
 def p_cluster_data_given_model_phis_and_errors(model, pairwise_occurances, clust1, clust2, clust_ass, phi1, phi2, fprs, ados, d_rng_i, scale=0):
     post = np.exp(log_p_cluster_data_given_model_phis_and_errors(model, pairwise_occurances, clust1, clust2, clust_ass, phi1, phi2, fprs, ados, d_rng_i) - scale)
@@ -262,7 +262,7 @@ def log_p_data_given_model_phis_and_errors(model, pairwise_occurances, fpr_a, fp
     assert pairwise_occurances.shape[0] == pairwise_occurances.shape[1]
     assert pairwise_occurances.shape[0] == len(d_rng)
     
-    return _log_p_data_given_model_phis_and_errors(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, d_rng)
+    return _log_p_data_given_model_phis_and_errors(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i)
 
 def p_data_given_model_phis_and_errors(model, pairwise_occurances, fpr_a, fpr_b, ado_a, ado_b, phi_a, phi_b, d_rng_i, scale=0):
     post = np.exp(log_p_data_given_model_phis_and_errors(model,pairwise_occurances,fpr_a,fpr_b,ado_a,ado_b,phi_a,phi_b,d_rng_i) - scale)

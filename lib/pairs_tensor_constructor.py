@@ -8,7 +8,7 @@ from scipy.special import logsumexp
 from numba import njit
 
 from common import Models, NUM_MODELS, _EPSILON
-from util import determine_all_pairwise_occurance_counts
+from util import determine_all_mutation_pair_occurance_counts
 # from pairs_tensor_util import p_data_given_model_phis_and_errors, log_p_data_given_model_phis_and_errors, p_model
 from pairs_tensor_util import log_p_cluster_data_given_model_phis_and_errors, p_cluster_data_given_model_phis_and_errors, p_model
 
@@ -184,7 +184,7 @@ def construct_pairs_tensor(data, fpr, ado, d_rng_i, clst_ass=None, parallel=None
     nClusts = len(np.unique(clst_ass))
     
     pool = multiprocessing.Pool(parallel)
-    pairwise_occurances, _ = determine_all_pairwise_occurance_counts(data, d_rng_i)
+    pairwise_occurances, _ = determine_all_mutation_pair_occurance_counts(data, d_rng_i)
     args = [[model, pairwise_occurances, fpr, ado, clst_ass, clst1, clst2, (not ignore_coclust), scale_integrand, quad_tol, d_rng_i] for model in mods for clst1 in range(nClusts-1) for clst2 in range(clst1+1,nClusts)]
     chunksize = int(np.ceil(nSNVs*nSNVs*len(mods)/2/parallel/8))
     results = pool.starmap(_calc_nonnorm_relationship_posterior,args,chunksize=chunksize)
