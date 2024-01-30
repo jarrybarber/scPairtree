@@ -253,9 +253,8 @@ def compute_node_relations(adj):
                 
     for i in range(K):
         R[i,i] = Models.cocluster
-
-    assert np.all(R[0]   == Models.A_B)
-    assert np.all(R[:,0] == Models.B_A)
+    assert np.all(R[0,1:]   == Models.A_B)
+    assert np.all(R[1:,0] == Models.B_A)
     return R
 
 def calc_tensor_prob(tensor):

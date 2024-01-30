@@ -5,10 +5,9 @@ import time
 import queue
 
 from common import Models, NUM_MODELS
-from util import logsumexp
-from util import compute_node_relations, convert_ancmatrix_to_parents, convert_parents_to_adjmatrix, convert_adjmatrix_to_ancmatrix
+from util import logsumexp, compute_node_relations
+from tree_util import calc_tree_llh, convert_ancmatrix_to_parents, convert_parents_to_adjmatrix, convert_adjmatrix_to_ancmatrix
 from progressbar import progressbar
-from tree_sampler import _calc_tree_llh
 
 
 def calc_posterior_norm_constant(llhs, samp_probs):
@@ -65,7 +64,7 @@ def calc_some_importance_sampling_values(samples, samp_probs, data, fprs, ados, 
             print(i, "/", n_samples)
         adj = convert_parents_to_adjmatrix(samples[i,:])
         anc = convert_adjmatrix_to_ancmatrix(adj)
-        llhs[i] = _calc_tree_llh(data, anc, fprs, ados, 1)
+        llhs[i] = calc_tree_llh(data, anc, fprs, ados, 1)
         
     ratios = llhs - samp_probs
     ratios = np.exp(ratios - np.max(ratios))

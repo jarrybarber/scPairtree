@@ -5,7 +5,7 @@ import os
 import sys
 import argparse
 from util import DATA_DIR
-from tree_util import make_ancestral_from_adj
+from tree_util import convert_adjmatrix_to_ancmatrix
 from pairs_tensor_util import p_data_given_truth_and_errors
 from common import DataRange, DataRangeIdx
 
@@ -77,7 +77,7 @@ def _generate_tree_structure(n_clust):
             new_parent = np.random.randint(0,node)
             adj_mat[new_parent,node] = 1
 
-    anc_mat = make_ancestral_from_adj(adj_mat)
+    anc_mat = convert_adjmatrix_to_ancmatrix(adj_mat)
 
     return adj_mat, anc_mat
 
