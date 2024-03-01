@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
 from result_serializer import Results
 from pairs_tensor_plotter import plot_best_model
 from tree_plotter import plot_tree
-from tree_sampler import _calc_tree_llh
+from tree_sampler_MCMC import _calc_tree_llh
 from util import make_ancestral_from_adj
 
 def _parse_args():

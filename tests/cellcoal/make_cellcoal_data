@@ -1,0 +1,87 @@
+SIMDIR=~/work/sc_pairtree/tests/cellcoal/data
+BINDIR=~/work/cellcoal/bin
+RESDIR=~/work/sc_pairtree/tests/cellcoal/results
+
+
+function create_all_sims {
+
+  n_reps=100
+  n_sites=10000 #length of the genome... mutations can fall anywhere along here
+  effective_population_size=10000 #Population size of entire sample we are drawing cells from
+  pop_exponential_growth_rate=0.0001
+  somatic_mutation_rate=1e-7
+  # min_cells_per_node=2
+  root_branch_length_ratio=1
+  outgroup_branch_length_ratio=0
+  rate_variation_among_branches=20 #??? check this one...
+  alphabet=0 #use binary 0/1
+  germline_snp_rate=0
+  doublet_rate=0
+  doublet_rate_var=0
+  sequencing_coverage=30
+  FPR_var=0.0000001
+
+  #Sim 1: comparing muts / ncells
+  for n_muts in 50 100 200; do
+  for n_cells in 500 1000 10000; do 
+  for FPR in 0.001 0.01; do
+  for ADO in 0.1 0.25 0.5; do
+
+  #Sim 2: comparing error rates
+  # for n_muts in 50 100 200; do
+  # for n_cells in 500 1000 10000; do 
+  # for FPR in 0.001 0.01; do
+  # for ADO in 0.1 0.25 0.5; do
+  #add in parameters so that ADO is selected from distribution
+
+  #Just to test
+  # for n_muts in 50; do
+  # for n_cells in 500; do 
+  # for FPR in 0.001; do
+  # for ADO in 0.1; do
+    echo $n_muts $n_cells $sim
+    # seed=`expr 1000 + $sim`
+    fn=m${n_muts}_c${n_cells}_fp${FPR}_ad${ADO}_ca${cell_alpha}_ma${mut_alpha}_dr${d_rng_id}_mc${min_cells_per_node}
+    out_fn=$SIMDIR/$fn
+    
+    # ${BINDIR}/cellcoal-1.2.0 -n1 -s20 -b0 -l100 -e10000 -g0.001 -j50 -k0.5 -q1 -u1.0e-07 -m0 -p0.0 -D0.0 -C5 -1 -2 -3 -4 -6 -Y -o$SIMDIR -y1
+
+    ${BINDIR}/cellcoal-1.2.0 \
+                        -g$pop_exponential_growth_rate \
+                        -n$n_reps \
+                        -s$n_cells \
+                        -l$n_sites \
+                        -e$effective_population_size \
+                        -k$root_branch_length_ratio \
+                        -q$outgroup_branch_length_ratio \
+                        -m0 \
+                        -p0.0 \
+                        -b$alphabet \
+                        -c$germline_snp_rate \
+                        -u$somatic_mutation_rate \
+                        -j$n_muts \
+                        -D$ADO \
+                        -G$FPR $FPR_var \
+                        -1 -2 -3 -4 -6 \
+                        -Y \
+                        -v \
+                        -o$out_fn \
+                        -y1
+                        # -B$doublet_rate $doublet_rate_var\
+                        # -h1 1 $effective_population_size 100 \
+                        # -i$rate_variation_among_branches \
+                        # -C$sequencing_coverage \
+                        # -A$FPR $FPR_var 1 \
+
+
+  done
+  done
+  done
+  done
+}
+
+function main {
+  create_all_sims
+}
+
+main

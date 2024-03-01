@@ -9,8 +9,8 @@ import hyperparams as hparams
 import util
 import common
 from common import Models, NUM_MODELS, _EPSILON
-from tree_sampler_PT_to_anc import sample_trees as init_tree_sample_DFPT
-from tree_util import convert_adjmatrix_to_ancmatrix, calc_tree_llh
+from tree_sampler_DFPT import sample_trees as init_tree_sample_DFPT
+from tree_util import convert_adjmatrix_to_ancmatrix, calc_tree_llh, convert_parents_to_adjmatrix
 
 from collections import namedtuple
 TreeSample = namedtuple('TreeSample', (
@@ -504,7 +504,7 @@ def _init_chain(seed, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_id):
     if np.random.uniform() < hparams.iota:
         # init_adj = _init_cluster_adj_mutrels(pairs_tensor)
         init_tree, _ = init_tree_sample_DFPT(pairs_tensor,1,True,None)
-        init_adj = util.convert_parents_to_adjmatrix(init_tree.flatten())
+        init_adj = convert_parents_to_adjmatrix(init_tree.flatten())
     else:
         # Particularly since clusters may not be ordered by mean VAF, a branching
         # tree in which every node comes off the root is the least biased
@@ -770,7 +770,7 @@ def sample_trees(sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, burn
         if this_best_tree.llh > best_tree.llh:
             best_tree = this_best_tree
     assert len(merged_adj) == len(merged_llh)
-    return (best_tree, merged_adj, merged_llh, accept_rates, chain_n_samples, conv_stat)
+    return (best_tree, np.array(merged_adj), merged_llh, accept_rates, chain_n_samples, conv_stat)
 
 
 def compute_posterior(adjms, llhs, sort_by_llh=True):

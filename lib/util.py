@@ -5,6 +5,7 @@ from scipy.special import loggamma, logsumexp
 from collections import namedtuple
 
 from common import Models, DataRangeIdx, DataRange, _EPSILON
+from tree_util import convert_adjmatrix_to_ancmatrix
 
 #Note, this may work better as a pandas object so that any sorting of 
 #snvs and cells automatically works when sorting data matrix.
@@ -102,109 +103,6 @@ def determine_mutation_pair_occurance_counts(data,pair_val):
 
     return count_mat.astype(int)
 
-@njit(cache=True)
-def convert_adjmatrix_to_ancmatrix(adj):
-    #Note: taken from Jeff's util code.
-    K = len(adj)
-    root = 0
-
-    assert np.all(1 == np.diag(adj))
-    expected_sum = 2 * np.ones(K)
-    expected_sum[root] = 1
-    assert np.array_equal(expected_sum, np.sum(adj, axis=0))
-
-    Z = np.copy(adj)
-    # np.fill_diagonal(Z, 0)
-    for i in range(Z.shape[0]):
-        Z[i,i] = 0
-        
-    stack = [root]
-    while len(stack) > 0:
-        P = stack.pop()
-        C = np.flatnonzero(Z[P])
-        if len(C) == 0:
-            continue
-        # Set ancestors of `C` to those of their parent `P`.
-        C_anc = np.copy(Z[:,P])
-        C_anc[P] = 1
-        # Turn `C_anc` into column vector.
-        Z[:,C] = np.expand_dims(C_anc, 1)
-        stack += list(C)
-    
-    for i in range(Z.shape[0]):
-        Z[i,i] = 1
-    assert np.array_equal(Z[root], np.ones(K))
-    
-    return Z
-
-
-@njit(cache=True)
-def convert_ancmatrix_to_adjmatrix(anc):
-    this_anc = np.copy(anc)
-    for i in range(this_anc.shape[0]):
-        this_anc[i,i] = 0
-    
-    adj = np.zeros(this_anc.shape, dtype=np.int8)
-    for i in range(adj.shape[0]):
-        adj[i,i] = 1
-    
-    n_clust = len(this_anc)
-    for child in range(1,n_clust):
-        is_anc_to_child = np.argwhere(this_anc[:,child]).flatten()
-        par = 0
-        for j in is_anc_to_child:
-            is_dec_cur_par = this_anc[par,j]
-            if is_dec_cur_par:
-                par = j
-        adj[par,child] = 1
-    return adj
-
-
-@njit(cache=True)
-def convert_ancmatrix_to_parents(anc):
-    n_clust = len(anc)
-    this_anc = np.copy(anc)
-    for i in range(n_clust):
-        this_anc[i,i] = 0
-    
-    parents = np.zeros(n_clust-1, dtype=np.int32)
-    for child in range(1,n_clust):
-        is_anc_to_child = np.flatnonzero(this_anc[:,child])# np.argwhere(this_anc[:,child]).flatten()
-        parent = 0
-        for j in is_anc_to_child:
-            is_dec_cur_par = this_anc[parent,j]
-            if is_dec_cur_par:
-                parent = j
-        parents[child-1] = parent
-    return parents
-
-
-@njit(cache=True)
-def convert_parents_to_ancmatrix(parents):
-    adj = convert_parents_to_adjmatrix(parents)
-    anc = convert_adjmatrix_to_ancmatrix(adj)
-    return anc
-
-
-#Taken from Jeff's Pairtree
-@njit(cache=True)
-def convert_parents_to_adjmatrix(parents):
-    K = len(parents) + 1
-    adjm = np.eye(K, dtype=np.int8)
-    for i,parent in enumerate(parents):
-        adjm[parent,i+1] = 1
-    return adjm
-
-
-#Taken from Jeff's Pairtree
-@njit(cache=True)
-def convert_adjmatrix_to_parents(adj):
-    adj = np.copy(adj)
-    np.fill_diagonal(adj, 0)
-    parents = np.zeros(adj.shape[1]-1, dtype=np.int32)
-    for i in range(1,adj.shape[1]):
-        parents[i-1] = find_first(1,adj[:,i])
-    return parents#np.argmax(adj[:,1:], axis=0)
 
 
 #I don't remember writing the below functions (convert nodadj to mutadj and vice versa)

@@ -22,8 +22,8 @@ def calc_tree_llh(data,anc,mut_ass,fpr,ado,d_rng_i):
     d_range = common.get_d_range(d_rng_i)
     n_mut, n_cell = data.shape
     n_clst = len(np.unique(mut_ass))
-    adj = util.convert_ancmatrix_to_adjmatrix(anc)
-    parents = util.convert_adjmatrix_to_parents(adj)
+    adj = convert_ancmatrix_to_adjmatrix(anc)
+    parents = convert_adjmatrix_to_parents(adj)
     node_order = _get_breadth_first_traversal(adj)
 
     p_dgas = np.zeros((4,2,n_mut))
@@ -60,7 +60,7 @@ def calc_tree_llh(data,anc,mut_ass,fpr,ado,d_rng_i):
 
 @njit(cache=True)
 def convert_adjmatrix_to_ancmatrix(adj):
-    #Note: taken from Jeff's util code.
+    #Note: taken from Pairtree's util code.
     K = len(adj)
     root = 0
 
@@ -142,7 +142,7 @@ def convert_parents_to_ancmatrix(parents):
     return anc
 
 
-#Taken from Jeff's Pairtree
+#Taken from Pairtree
 @njit(cache=True)
 def convert_parents_to_adjmatrix(parents):
     K = len(parents) + 1
@@ -152,7 +152,7 @@ def convert_parents_to_adjmatrix(parents):
     return adjm
 
 
-#Taken from Jeff's Pairtree
+#Taken from Pairtree
 @njit(cache=True)
 def convert_adjmatrix_to_parents(adj):
     adj = np.copy(adj)
