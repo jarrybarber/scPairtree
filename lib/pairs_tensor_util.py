@@ -1,6 +1,7 @@
 import numpy as np
 from numba import njit
 from common import Models, DataRangeIdx, DataRange, get_d_range
+from util import log_multinomial
 
 ISCLOSE_TOLERANCE = 1e-8
 
@@ -193,7 +194,7 @@ def _log_p_data_given_model_phis_and_errors(model, pairwise_occurances, fpr_a, f
     if phi_pri==0:
         return -np.inf
     
-    log_post = np.log(phi_pri)    
+    log_p_data = np.log(phi_pri)    
     for i,d_i in enumerate(d_rng):
         for j,d_j in enumerate(d_rng):
             to_sum = 0
@@ -203,9 +204,12 @@ def _log_p_data_given_model_phis_and_errors(model, pairwise_occurances, fpr_a, f
                               p_data_given_truth_and_errors(d_j,t_m,fpr_b,ado_b,d_rng_i) * \
                               p_trueDat_given_model_and_phis(t_n,t_m,model,phi_a,phi_b)
 
-            log_post += pairwise_occurances[i,j] * np.log(to_sum)
+            log_p_data += pairwise_occurances[i,j] * np.log(to_sum)
     
-    return log_post
+    log_multinomial_coef = log_multinomial(pairwise_occurances.flatten())
+    log_p_data = log_multinomial_coef + log_p_data 
+
+    return log_p_data
 
 @njit(cache=True)
 def _log_p_cluster_data_given_model_phis_and_errors(model, pairwise_occurances, clust1, clust2, clust_ass, phi1, phi2, fprs, ados, d_rng_i):

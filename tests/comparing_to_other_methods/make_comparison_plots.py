@@ -22,8 +22,29 @@ def _convert_runtime_string_to_float(time_string):
         assert 1==0
     return time #in sec
 
+def _load_estimated_errors(n_mut,n_cell,FPR,ADO,cell_alpha,mut_alpha,d_rng_id,min_cells_per_node,seed,method):
+    base_fn = "m{}_c{}_fp{}_ad{}_ca{}_ma{}_dr{}_mc{}_seed{}".format(n_mut,n_cell,FPR,ADO,cell_alpha,mut_alpha,d_rng_id,min_cells_per_node,seed)
+    est_error_rates = [-1,-1]
+    this_dir = os.path.join(RESULTS_DIR,method)
 
-def _load_reconstruction_accuracy_measures(n_mut,n_cell,FPR,ADO,cell_alpha,mut_alpha,d_rng_id,min_cells_per_node,seed,method):
+    if method=="sc_pairtree":
+        res = Results(os.path.join(this_dir,base_fn))
+        est_error_rates[0] = res.get("est_FPRs")[0]
+        est_error_rates[1] = res.get("est_ADOs")[0]
+    elif method=="sasc":
+        #Not yet implemented
+        return -1
+    elif method=="scite":
+        #Not yet implemented
+        return-1
+    
+    return est_error_rates
+
+
+def _load_reconstruction_accuracy_measures(n_mut,n_cell,FPR,ADO,cell_alpha,mut_alpha,d_rng_id,min_cells_per_node,seed,method,use_act_errs=False):
+
+    if use_act_errs and (method=="sasc" or method=="scite"):
+        raise Exception("Have not yet run SASC nor SCITE with actual errors input. Only have run them with error rate estimation enabled.")
 
     base_fn = "m{}_c{}_fp{}_ad{}_ca{}_ma{}_dr{}_mc{}_seed{}".format(n_mut,n_cell,FPR,ADO,cell_alpha,mut_alpha,d_rng_id,min_cells_per_node,seed)
     adj_act = np.loadtxt(os.path.join(SIM_DAT_DIR,base_fn+'.adj'),dtype=int)
@@ -34,7 +55,10 @@ def _load_reconstruction_accuracy_measures(n_mut,n_cell,FPR,ADO,cell_alpha,mut_a
         mut_adj_act[mut_ass[par], mut_ass[chld]] = 1
     this_dir = os.path.join(RESULTS_DIR,method)
     if method=="sc_pairtree":
-        res = Results(os.path.join(this_dir,base_fn))
+        if use_act_errs:
+            res = Results(os.path.join(this_dir,base_fn+"_act_error_rates"))
+        else:
+            res = Results(os.path.join(this_dir,base_fn))
         ml_tree = res.get("best_tree_adj")
 
     elif method=="sasc":
@@ -165,6 +189,10 @@ def make_datasize_comp_plots(n_muts,cell_mults,min_cells_per_node,seeds,methods,
     # ml_trees = {} #np.zeros((len(methods),len(n_muts),len(n_cells),len(seeds)))
     n_wrong_parents = np.zeros((len(methods),len(n_muts),len(cell_mults),len(seeds)))
     n_wrong_relations = np.zeros((len(methods),len(n_muts),len(cell_mults),len(seeds)))
+    n_wrong_parents_scp_act_errs = np.zeros((len(n_muts),len(cell_mults),len(seeds)))
+    n_wrong_relations_scp_act_errs = np.zeros((len(n_muts),len(cell_mults),len(seeds)))
+    FPR_ests = np.zeros((len(n_muts),len(cell_mults),len(seeds)))
+    ADO_ests = np.zeros((len(n_muts),len(cell_mults),len(seeds)))
     print("Loading data...")
     for mu,n_mut in enumerate(n_muts):
         # ml_trees[n_mut] = {}
@@ -175,6 +203,8 @@ def make_datasize_comp_plots(n_muts,cell_mults,min_cells_per_node,seeds,methods,
             #     continue
             for se,seed in enumerate(seeds):
                 print(n_mut, n_cell, seed)
+                FPR_ests[mu, ce, se], ADO_ests[mu, ce, se], = _load_estimated_errors(n_mut,n_cell,FPR,ADO,cell_alpha,mut_alpha,d_rng_id,min_cells_per_node,seed,"sc_pairtree")
+                n_wrong_parents_scp_act_errs[mu, ce, se], n_wrong_relations_scp_act_errs[mu, ce, se] = _load_reconstruction_accuracy_measures(n_mut,n_cell,FPR,ADO,cell_alpha,mut_alpha,d_rng_id,min_cells_per_node,seed,"sc_pairtree",True)
                 for me,method in enumerate(methods):
                     n_wrong_parents[me, mu, ce, se], n_wrong_relations[me, mu, ce, se] = _load_reconstruction_accuracy_measures(n_mut,n_cell,FPR,ADO,cell_alpha,mut_alpha,d_rng_id,min_cells_per_node,seed,method)
 
@@ -231,11 +261,51 @@ def make_datasize_comp_plots(n_muts,cell_mults,min_cells_per_node,seeds,methods,
         plt.ylabel("# Wrong Relations + 1",fontsize=plt_options['fontsize'])
         # plt.xlim([ticks[0] - 0.1, ticks[-1] +0.1])
     
-    # plt.xticks(ticks,labels)#,rotation=45,fontsize=10)
-    # fig.autofmt_xdate()
     fig.tight_layout()
     plt.savefig(os.path.join(results_dir, plt_options["filename_base"] + "_wrong_relations_comp.png"))
     plt.close()
+
+    for toplot in ["err_ests", "n_wrong_parents", "n_wrong_relations"]:
+        fig = plt.figure(figsize=(3*len(cell_mults),3*len(n_muts)))
+        for mu, n_mut in enumerate(n_muts):        
+            for ce,cell_mult in enumerate(cell_mults):
+                n_cell = n_mut*cell_mult
+                ax = plt.subplot(len(n_muts),len(cell_mults),mu*len(cell_mults)+ce+1)
+                plt.title("(mut,cell): {}, {}".format(n_mut,n_cell),fontsize=plt_options['fontsize'])
+                if n_mut > n_cell:
+                    continue
+                if toplot == "err_ests":
+                    for se,seed in enumerate(seeds):
+                        plt.plot([ADO,ADO_ests[mu, ce, se]],[FPR,FPR_ests[mu, ce, se]],"r--")
+                    plt.plot([ADO],[FPR],"k*")
+                    plt.xlim([np.min(ADO_ests), np.max(ADO_ests)])
+                    plt.ylim([np.min(FPR_ests), np.max(FPR_ests)])
+                    if mu==len(n_muts)-1:
+                        plt.xlabel("ADO",fontsize=plt_options['fontsize'])
+                    if ce==0:
+                        plt.ylabel("FPR",fontsize=plt_options['fontsize'])
+                elif toplot == "n_wrong_parents":
+                    to_plt = np.vstack((n_wrong_parents[0,mu,ce,:], n_wrong_parents_scp_act_errs[mu,ce,:]))
+                    pos = np.arange(2)
+                    plt.boxplot(to_plt.T, positions=pos)
+                    # plt.ylim([np.min(n_wrong_parents), np.max(n_wrong_parents)])
+                    plt.xticks([])
+                    if mu==len(n_muts)-1:
+                        plt.xticks(pos,labels=["Est errs", "Act errs"])
+                    if ce==0:
+                        plt.ylabel("n_wrong_parents",fontsize=plt_options['fontsize'])
+                elif toplot == "n_wrong_relations":
+                    to_plt = np.vstack((1+n_wrong_relations[0,mu,ce,:], 1+n_wrong_relations_scp_act_errs[mu,ce,:]))
+                    pos = np.arange(2)
+                    plt.boxplot(to_plt.T, positions=pos)
+                    plt.xticks([])
+                    if mu==len(n_muts)-1:
+                        plt.xticks(pos,labels=["Est errs", "Act errs"])
+                    if ce==0:
+                        plt.ylabel("1+n_wrong_relations",fontsize=plt_options['fontsize'])
+        fig.tight_layout()
+        plt.savefig(os.path.join(results_dir, "{}_scpairtree_est_v_act_{}.png".format(plt_options["filename_base"],toplot)))
+        plt.close()
 
     return
 
@@ -296,34 +366,86 @@ def make_errorrate_comp_plots(n_muts,cell_mults,ADOs,FPRs,min_cells_per_node,see
                 plt.close()
 
 
-    # fig = plt.figure(figsize=(2*len(cell_mults),2*len(n_muts)))
-    # for mu, n_mut in enumerate(n_muts):
-    #     ax = plt.subplot(len(n_muts),1,mu+1)
-    #     ax.set_yscale('log')
-        
-    #     plt.title("n_mut: " + str(n_mut),fontsize=plt_options['fontsize'])
-    #     ticks = []
-    #     labels = []
-    #     for ce,cell_mult in enumerate(cell_mults):
-    #         n_cell = n_mut*cell_mult
-    #         this_pos = ce + np.arange(len(methods))/(len(methods)+1)
-    #         ticks = np.append(ticks,(this_pos[0] + this_pos[-1])/2)
-    #         labels += ["{} cells".format(n_cell)]
-    #         if n_mut > n_cell:
-    #             continue
-    #         to_plt = 1+n_wrong_relations[:,mu,ce,:]
-    #         bp=plt.boxplot(to_plt.T, positions=this_pos)
-    #     # plt.xticks([])
-    #     plt.xticks(ticks,labels,fontsize=plt_options['fontsize'])#,rotation=45)
-    #     plt.yticks(fontsize=plt_options['fontsize'])
-    #     plt.ylabel("# Wrong Relations + 1",fontsize=plt_options['fontsize'])
-    #     # plt.xlim([ticks[0] - 0.1, ticks[-1] +0.1])
+    return
+
     
-    # # plt.xticks(ticks,labels)#,rotation=45,fontsize=10)
-    # # fig.autofmt_xdate()
-    # fig.tight_layout()
-    # plt.savefig(os.path.join(results_dir, plt_options["filename_base"] + "_wrong_relations_comp.png"))
-    # plt.close()
+def make_scpairtree_act_v_est_errs_plots(n_muts,cell_mults,ADOs,FPRs,min_cells_per_node,seeds,plt_options):
+    #Default parameters
+    cell_alpha = 1
+    mut_alpha = 1
+    d_rng_id = 1
+    method = "sc_pairtree"
+    
+    #Load the data
+    n_wrong_parents = np.zeros((2,len(n_muts),len(cell_mults),len(ADOs),len(FPRs),len(seeds)))
+    n_wrong_relations = np.zeros((2,len(n_muts),len(cell_mults),len(ADOs),len(FPRs),len(seeds)))
+    ADO_ests = np.zeros((len(n_muts),len(cell_mults),len(ADOs),len(FPRs),len(seeds)))
+    FPR_ests = np.zeros((len(n_muts),len(cell_mults),len(ADOs),len(FPRs),len(seeds)))
+    print("Loading data...")
+    for mu,n_mut in enumerate(n_muts):
+        for ce,cell_mult in enumerate(cell_mults):
+            n_cell = n_mut*cell_mult
+            for ad,ADO in enumerate(ADOs):
+                for fp,FPR in enumerate(FPRs):
+                    for se,seed in enumerate(seeds):
+                        print(n_mut, n_cell, ADO, FPR, seed)
+                        FPR_ests[mu, ce, ad, fp, se], ADO_ests[mu, ce, ad, fp, se], = _load_estimated_errors(n_mut,n_cell,FPR,ADO,cell_alpha,mut_alpha,d_rng_id,min_cells_per_node,seed,method)
+                        for ua,use_act_errs in enumerate([False,True]):
+                            n_wrong_parents[ua, mu, ce, ad, fp, se], n_wrong_relations[ua, mu, ce, ad, fp, se] = _load_reconstruction_accuracy_measures(n_mut,n_cell,FPR,ADO,cell_alpha,mut_alpha,d_rng_id,min_cells_per_node,seed,method,use_act_errs)
+                            
+
+    for mu,n_mut in enumerate(n_muts):
+        for ce,cell_mult in enumerate(cell_mults): #Different figure for each cell mult value
+            for measure in ["wrong_parents", "wrong_relations"]:
+                save_fn = os.path.join(RESULTS_DIR, plt_options["filename_base"] + "cmult{}_{}_comp.png".format(cell_mult,measure))
+                if measure=="wrong_parents":
+                    y_label = "# Wrong Parents"
+                elif measure=="wrong_relations":
+                    y_label = "# Wrong Relationships + 1"
+
+                fig = plt.figure(figsize=plt_options["fig_size"])
+                for ad, ADO in enumerate(ADOs):
+                    plt.subplot(len(ADOs),1,ad+1)
+                    plt.title("ADO: " + str(ADO),fontsize=plt_options['fontsize'])
+                    ticks = []
+                    labels = []
+                    for fp, FPR in enumerate(FPRs):
+                        this_pos = fp + np.arange(2)/(2+1)
+                        ticks = np.append(ticks,(this_pos[0] + this_pos[-1])/2)
+                        labels += ["FPR: {}".format(FPR)]
+                        if measure=="wrong_parents":
+                            to_plt = n_wrong_parents[:,mu,ce,ad,fp,:]
+                            ylim = [np.min(n_wrong_parents), np.max(n_wrong_parents)]
+                        elif measure=="wrong_relations":
+                            to_plt = 1+n_wrong_relations[:,mu,ce,ad,fp,:]
+                            ylim = [np.min(1+n_wrong_relations), np.max(1+n_wrong_relations)]
+                        plt.boxplot(to_plt.T, positions=this_pos)
+                        plt.ylim(ylim)
+                    plt.xticks(ticks,labels,fontsize=plt_options['fontsize'])#,rotation=45)
+                    plt.yticks(fontsize=plt_options['fontsize'])
+                    plt.ylabel(y_label, fontsize=plt_options['fontsize'])
+                
+                # plt.xticks(ticks,labels)#,rotation=45,fontsize=10)
+                # fig.autofmt_xdate()
+                fig.tight_layout()
+                plt.savefig(save_fn)
+                plt.close()
+
+            #Now for comparing the actual v.s. estimated error rates
+            save_fn = os.path.join(RESULTS_DIR, plt_options["filename_base"] + "cmult{}_{}_comp.png".format(cell_mult,"err_rate_est_accuracy"))
+
+            fig = plt.figure(figsize=plt_options["fig_size"])
+            for ad, ADO in enumerate(ADOs):
+                for fp, FPR in enumerate(FPRs):
+                    for se,seed in enumerate(seeds):
+                        plt.plot([ADO,ADO_ests[mu, ce, ad, fp, se]],[FPR,FPR_ests[mu, ce, ad, fp, se]],"r--")
+                        plt.plot([ADO],[FPR],"k*")
+            # plt.title("ADO: " + str(ADO),fontsize=plt_options['fontsize'])
+            plt.xlabel("ADOs",fontsize=plt_options['fontsize'])
+            plt.ylabel("FPRs",fontsize=plt_options['fontsize'])
+            plt.yscale("log")
+            plt.savefig(save_fn)
+            plt.close()
     return
 
 
@@ -347,16 +469,27 @@ def main():
 
 
     #error rate datasets
+    # n_muts= [100]
+    # cell_mults = [5,50]
+    # ADOs = [0.1, 0.3, 0.5]
+    # FPRs = [0.001, 0.01, 0.1]
+    # min_cells_per_node = 2
+    # seeds = np.arange(1001, 1010)
+    # methods = ["sc_pairtree", "scite", "sasc"]
+    # plt_options = {"fontsize": 12, "filename_base": "varying_errorrates_", "fig_size": (3*len(ADOs), 3*len(FPRs))}
+
+    # make_errorrate_comp_plots(n_muts,cell_mults,ADOs,FPRs,min_cells_per_node,seeds,methods,plt_options)
+
+    #comparing scPairtree results when using actual error rates v.s. estimated
     n_muts= [100]
     cell_mults = [5,50]
     ADOs = [0.1, 0.3, 0.5]
     FPRs = [0.001, 0.01, 0.1]
     min_cells_per_node = 2
     seeds = np.arange(1001, 1010)
-    methods = ["sc_pairtree", "scite", "sasc"]
-    plt_options = {"fontsize": 12, "filename_base": "varying_errorrates_", "fig_size": (3*len(ADOs), 3*len(FPRs))}
+    plt_options = {"fontsize": 12, "filename_base": "scPairtree_actErr_v_estErr_", "fig_size": (3*len(ADOs), 3*len(FPRs))}
 
-    make_errorrate_comp_plots(n_muts,cell_mults,ADOs,FPRs,min_cells_per_node,seeds,methods,plt_options)
+    make_scpairtree_act_v_est_errs_plots(n_muts,cell_mults,ADOs,FPRs,min_cells_per_node,seeds,plt_options)
 
     return
 

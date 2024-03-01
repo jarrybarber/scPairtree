@@ -9,7 +9,7 @@ from result_serializer import Results
 from pairs_tensor_plotter import plot_best_model
 from tree_plotter import plot_tree
 from tree_sampler import _calc_tree_llh
-from util import make_ancestral_from_adj
+from util import convert_adjmatrix_to_ancmatrix, convert_nodeadj_to_mutadj
 
 def _parse_args():
     parser = argparse.ArgumentParser(
@@ -96,7 +96,8 @@ def main():
 
     if args.act_tree_adj is not None:
         act_tree_adj = np.loadtxt(args.act_tree_adj, dtype=np.int16)
-        act_tree_anc = make_ancestral_from_adj(act_tree_adj)
+        act_tree_mut_adj = convert_nodeadj_to_mutadj(act_tree_adj, mut_assignments)
+        act_tree_anc = convert_adjmatrix_to_ancmatrix(act_tree_adj)
         act_tree_llh = _calc_tree_llh(data,act_tree_anc,est_FPRs,est_ADOs,scp_args['d_rng_i'])
     else:
         act_tree_adj = None

@@ -28,8 +28,8 @@ DataRange = ((0,1),(0,1,3),(0,1,2,3))
 
 @njit(cache=True)
 def get_d_range(d_rng_i):
-    #Numba is really really annoying when it comes to any type of list embedded in lists.
-	#So, I decided to just make this function to allow me to get the d_range from d_range index
+  #Numba is really really annoying when it comes to any type of list embedded in lists.
+	#So, I decided to just make this function to allow me to get the d_range from d_range_index
 	#Otherwise I have to pass both the list and the index all over the place.
     if d_rng_i == 0:
         d_range = [0,1]

@@ -5,15 +5,15 @@ import time
 import queue
 
 from common import Models, NUM_MODELS
-from util import logsumexp
-from util import compute_node_relations, convert_ancmatrix_to_parents, convert_parents_to_adjmatrix, convert_adjmatrix_to_ancmatrix
+from util import numba_logsumexp
+from util import compute_node_relations, convert_ancmatrix_to_parents, convert_parents_to_adjmatrix, convert_adjmatrix_to_ancmatrix, convert_parents_to_ancmatrix
 from progressbar import progressbar
 from tree_sampler import _calc_tree_llh
 
 
 def calc_posterior_norm_constant(llhs, samp_probs):
     n_samples = len(llhs)
-    nlogC = -np.log(n_samples) + logsumexp(llhs - samp_probs)
+    nlogC = -np.log(n_samples) + numba_logsumexp(llhs - samp_probs)
     return nlogC
 
 @numba.njit
@@ -78,14 +78,58 @@ def calc_some_importance_sampling_values(samples, samp_probs, data, fprs, ados):
         adj = convert_parents_to_adjmatrix(samples[i,:])
         anc = convert_adjmatrix_to_ancmatrix(adj)
         
-        # print(IS_adj_mat)
-        # print(adj)
         IS_adj_mat = IS_adj_mat + adj*ratios[i]
         IS_anc_mat = IS_anc_mat + anc*ratios[i]
     
     return llhs, IS_adj_mat, IS_anc_mat
 
+
+def calc_IS_anc_mat(samples, log_posts, log_qs):
+    n_samples, n_mut = samples.shape
+    IS_anc_mat = np.zeros((n_mut+1,n_mut+1))
+    for i in range(n_samples):
+        IS_anc_mat += np.exp(log_posts[i] - log_qs[i]) * convert_parents_to_ancmatrix(samples[i,:])
+    IS_anc_mat = IS_anc_mat / n_samples
+    return IS_anc_mat
+
+def calc_IS_adj_mat(samples, log_posts, log_qs):
+    n_samples, n_mut = samples.shape
+    IS_adj_mat = np.zeros((n_mut+1,n_mut+1))
+    for i in range(n_samples):
+        IS_adj_mat += np.exp(log_posts[i] - log_qs[i]) * convert_parents_to_adjmatrix(samples[i,:])
+    IS_adj_mat = IS_adj_mat / n_samples
+    return IS_adj_mat
+
+# def calc_uniq_samples_with_IS_posterior_prob(samples, samp_probs, data, fprs, ados, mut_ass, d_rng_i):
+#     n_samples = len(samples)
+#     unique_samples, uni_i, uniq_cnts = np.unique(samples, axis=0, return_index=True, return_counts=True)
+#     n_unique = len(unique_samples)
+#     uniq_log_qs = samp_probs[uni_i]
+
+#     uniq_llhs = np.zeros(n_unique)
+#     for i in range(n_unique):
+#         uniq_anc = convert_parents_to_ancmatrix(unique_samples[i])
+#         uniq_llhs[i] = _calc_tree_llh(data,uniq_anc,mut_ass,fprs,ados,d_rng_i)
     
+#     logC = np.log(n_samples) - numba_logsumexp(np.log(uniq_cnts) + uniq_llhs - uniq_log_qs)
+#     uniq_log_posts = logC + np.log(uniq_cnts) + uniq_llhs
+
+#     return unique_samples, uniq_log_posts, uniq_log_qs
+
+
+def calc_sample_posts(samples, samp_probs, data, fprs, ados, mut_ass, d_rng_i):
+    n_samples = len(samples)
+
+    llhs = np.zeros(n_samples)
+    for i in range(n_samples):
+        uniq_anc = convert_parents_to_ancmatrix(samples[i])
+        llhs[i] = _calc_tree_llh(data,uniq_anc,mut_ass,fprs,ados,d_rng_i)
+    
+    logC = np.log(n_samples) - numba_logsumexp(llhs - samp_probs)
+    log_posts = logC + llhs
+
+    return log_posts
+
 
 @numba.njit(cache=True)
 def _propogate_rules(anc,i,j,rel,model_probs):
@@ -258,11 +302,6 @@ def sample_trees(pairs_tensor, n_samples, order_by_certainty=True, parallel=None
         #arbitrary mutation pair ordering set here.
         rngs = np.array([[i,j] for i in range(n_mut) for j in range(n_mut)])
         rng_i, rng_j = rngs[:,0], rngs[:,1]
-    
-    #Let's try removing the indices which are ultimately duplicates
-    # to_del = rng_i<rng_j
-    # rng_i = np.delete(rng_i,to_del)
-    # rng_j = np.delete(rng_j,to_del)
 
     selection_probs = np.copy(pairs_tensor)
     selection_probs[range(n_mut),range(n_mut),Models.cocluster] = -np.inf
@@ -304,8 +343,7 @@ def sample_trees(pairs_tensor, n_samples, order_by_certainty=True, parallel=None
 
 
 def main():
-
-    return
+    pass
 
 
 if __name__ == "__main__":

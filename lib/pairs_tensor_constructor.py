@@ -128,6 +128,7 @@ def _complete_tensor(scores):
 def _normalize_pairs_tensor(pairs_tensor, ignore_coclust=False, ignore_garbage=True):
     if not np.all(pairs_tensor<=0):
         print("min, max of pairs tensor:", np.nanmin(pairs_tensor), np.nanmax(pairs_tensor))
+        print("ind of max:", np.unravel_index(np.nanargmax(pairs_tensor),pairs_tensor.shape))
         print("n_neginf:", np.sum(np.isneginf(pairs_tensor)))
         print("n_posinf:", np.sum(np.isposinf(pairs_tensor)))
         print("n_nan:",  np.sum(np.isnan(pairs_tensor)))

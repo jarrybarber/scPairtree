@@ -8,6 +8,7 @@ import random
 import matplotlib.pyplot as plt
 import warnings
 import time
+import copy
 
 from sklearn.exceptions import DataConversionWarning
 
@@ -22,6 +23,7 @@ from tree_plotter import plot_tree
 from pairs_tensor_plotter import plot_best_model
 from common import DataRange, DataRangeIdx
 from result_serializer import Results
+import tree_sampler_PT_to_anc as dfpt_sampler
 
 
 def _parse_args():
@@ -66,6 +68,10 @@ def _parse_args():
         help='(Optional) Minimum number of samples required before convergence criteria is checked and allowed to terminate tree sampling.')
     parser.add_argument('--check-convergence-every', dest='check_conv_every', type=float, default=None,
         help='(Optional) How often convergence is checked.')
+    parser.add_argument('--perform-dfpt-sampling', dest='perform_dfpt_sampling',  action='store_true',
+        help='(Optional) Perform direct-from-pairs-tensor sampling. These can be used with importance sampling to estimate a consensus graph or other parameters.')
+    parser.add_argument('--dfpt-nsamples', dest='dfpt_nsamples',  type=int, default=100000,
+        help='(Optional) The number of samples to take when doing dfpt sampling.')
     parser.add_argument('--only-build-tensor', dest='only_build_tensor', action='store_true',
         help='Exit after building pairwise relations tensor, without sampling any trees.')
     parser.add_argument('--disable-posterior-sort', dest='sort_by_llh', action='store_false',
@@ -126,7 +132,7 @@ def _get_default_args(args):
     return parallel, tree_chains, seed, d_rng_i, convergence_options
 
 
-def run(data, rerun, d_rng_i, variable_ado, n_clust_iter, clust_dir_alpha, trees_per_chain, burnin, tree_chains, thinned_frac, seed, parallel, convergence_options, res, fpr=[], adr=[]):
+def run(data, rerun, d_rng_i, variable_ado, n_clust_iter, clust_dir_alpha, trees_per_chain, burnin, tree_chains, thinned_frac, seed, parallel, convergence_options, perform_dftp, dfpt_nsamples, res, fpr=[], adr=[]):
     assert len(data.shape) == 2
 
     ### ESTIMATE THE ERROR RATES ###
@@ -153,7 +159,9 @@ def run(data, rerun, d_rng_i, variable_ado, n_clust_iter, clust_dir_alpha, trees
     if res.has("mutation_cluster_assignments") and not rerun:
         mutation_cluster_assignments = res.get("mutation_cluster_assignments")
     else:
+        s = time.time()
         mutation_cluster_assignments = cluster_mutations(data, fpr, adr, n_clust_iter, burnin, clust_dir_alpha, d_rng_i, ret_all_iters=False)
+        res.add("clustering_time", time.time() - s)
         res.add("mutation_cluster_assignments",mutation_cluster_assignments)
 
     ### CONSTRUCT THE PAIRS TENSOR ###
@@ -197,7 +205,6 @@ def run(data, rerun, d_rng_i, variable_ado, n_clust_iter, clust_dir_alpha, trees
         res.add("convergence_stat", np.array(conv_stat))
         res.save()
 
-    
     ### Compute tree posterior ###
     print("Computing tree posterior")
     post_struct, post_count, post_llh, post_prob = compute_posterior(
@@ -211,6 +218,25 @@ def run(data, rerun, d_rng_i, variable_ado, n_clust_iter, clust_dir_alpha, trees
     res.add('prob', post_prob)
     res.save()
 
+    ### (OPTIONAL) SAMPLE DIRECTLY FROM THE PAIRS TENSOR ###
+    if perform_dftp:
+        if res.has("dfpt_samples") and not rerun:
+            dfpt_samples = res.get("dfpt_samples")
+            dfpt_sample_probs = res.get("dfpt_sample_probs")
+        else:
+            print("Performing direct-from-pairs-tensor sampling...")
+            s = time.time()
+            dfpt_samples, dfpt_sample_probs = dfpt_sampler.sample_trees(pairs_tensor,dfpt_nsamples)
+            # unique_samples, uniq_post, uniq_qs = dfpt_sampler.calc_uniq_samples_with_IS_posterior_prob(dfpt_samples, dfpt_sample_probs, data, fpr, adr, mutation_cluster_assignments, d_rng_i)
+            log_posts = dfpt_sampler.calc_sample_posts(dfpt_samples, dfpt_sample_probs, data, fpr, adr, mutation_cluster_assignments, d_rng_i)
+            IS_adj_mat = dfpt_sampler.calc_IS_adj_mat(dfpt_samples, log_posts, dfpt_sample_probs)
+            IS_anc_mat = dfpt_sampler.calc_IS_anc_mat(dfpt_samples, log_posts, dfpt_sample_probs)
+            res.add("dfpt_time", time.time() - s)
+            res.add("dfpt_samples", dfpt_samples)
+            res.add("dfpt_sample_probs", dfpt_sample_probs)
+            res.add("dfpt_IS_adj_mat", IS_adj_mat)
+            res.add("dfpt_IS_anc_mat", IS_anc_mat)
+            res.save()
 
     return 
 
@@ -230,8 +256,13 @@ def main():
             d[k] = v
     else:
         ### SET DEFAULT ARGUMENTS ###
+        if os.path.isfile(args.results_fn):
+            os.remove(args.results_fn)
+            res = Results(args.results_fn)
         args.parallel, args.tree_chains, args.seed, args.d_rng_i, args.convergence_options = _get_default_args(args) 
-        res.add("scp_args",vars(args))
+        to_save_args = copy.deepcopy(args)
+        to_save_args.rerun = False #Do this or setting rerun once will cause all runs to rerun in the future!
+        res.add("scp_args",vars(to_save_args))
     
 
     _init_hyperparams(args)
@@ -262,9 +293,12 @@ def main():
         seed = args.seed, 
         parallel = args.parallel, 
         convergence_options = args.convergence_options,
+        perform_dftp=args.perform_dfpt_sampling,
+        dfpt_nsamples=args.dfpt_nsamples,
         res = res,
         fpr = args.fpr,
-        adr = args.adr)
+        adr = args.adr
+        )
         
 
     return

@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from numba import njit
+from numba import njit, jit
 from scipy.special import loggamma, logsumexp
 from collections import namedtuple
 
@@ -23,6 +23,11 @@ DATA_DIR = os.path.join(BASE_DIR,"data")
 OUT_DIR  = os.path.join(BASE_DIR,"out")
 RUNS_DIR = os.path.join(BASE_DIR,"runs")
 
+#I will be calcuating these values a lot, and it will be faster to store their values in a list
+_MAX_NCELLS = 100000
+LOG_FACTORIALS = np.zeros(_MAX_NCELLS, dtype=np.float)
+for j in range(2,_MAX_NCELLS):
+    LOG_FACTORIALS[j] = np.log(j) + LOG_FACTORIALS[j-1]
 
 def load_data(fn, data_dir=None):
     #Loads a data file without column or row labels.
@@ -248,9 +253,7 @@ def compute_node_relations(adj):
                 
     for i in range(K):
         R[i,i] = Models.cocluster
-
-    assert np.all(R[0]   == Models.A_B)
-    assert np.all(R[:,0] == Models.B_A)
+    assert np.all(R[1:,0] == Models.B_A)
     return R
 
 def calc_tensor_prob(tensor):
@@ -273,6 +276,18 @@ def softmax(V):
     smax /= np.sum(smax)
     #assert np.isclose(np.sum(smax), 1)
     return smax
+
+@njit(cache=True)
+def log_multinomial(lst):
+    res = log_factorial(np.sum(lst))
+    for a in lst:
+        res -= log_factorial(a)
+    return res
+
+@njit(cache=True)
+def log_factorial(i):
+    assert i < len(LOG_FACTORIALS)
+    return LOG_FACTORIALS[i]
 
 @njit(cache=True)
 def isclose(a,b,atol=1e-8,rtol=1e-5):
