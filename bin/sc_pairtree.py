@@ -18,7 +18,7 @@ from util import load_data
 from error_rate_estimator import estimate_error_rates
 from mutation_clusterer import cluster_mutations
 from pairs_tensor_constructor import construct_pairs_tensor
-from tree_sampler import sample_trees, compute_posterior
+from tree_sampler_MCMC import sample_trees, compute_posterior
 from tree_plotter import plot_tree
 from pairs_tensor_plotter import plot_best_model
 from common import DataRange, DataRangeIdx

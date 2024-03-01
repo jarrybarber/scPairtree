@@ -8,8 +8,9 @@ from progressbar import progressbar
 import hyperparams as hparams
 import util
 import common
-from common import Models, NUM_MODELS, DataRange, DataRangeIdx, _EPSILON
-from pairs_tensor_util import p_data_given_truth_and_errors
+from common import Models, NUM_MODELS, _EPSILON
+from tree_sampler_DFPT import sample_trees as init_tree_sample_DFPT
+from tree_util import convert_adjmatrix_to_ancmatrix, calc_tree_llh, convert_parents_to_adjmatrix
 
 from collections import namedtuple
 TreeSample = namedtuple('TreeSample', (
@@ -18,95 +19,6 @@ TreeSample = namedtuple('TreeSample', (
   'llh'
 ))
 
-
-@njit(cache=True)
-def _get_breadth_first_traversal(adj,start_ind=0):
-
-    bst = [start_ind]
-    for i in range(adj.shape[0]):
-        for j in range(adj.shape[1]):
-            if bst[i] == j:
-                continue
-            if adj[bst[i],j] == 1:
-                bst.append(j)
-    return bst
-
-
-@njit(cache=True)
-def _calc_tree_llh(data,anc,mut_ass,fpr,ado,d_rng_i):
-    d_range = common.get_d_range(d_rng_i)
-    n_mut, n_cell = data.shape
-    n_clst = len(np.unique(mut_ass))
-    adj = util.convert_ancmatrix_to_adjmatrix(anc)
-    parents = util.convert_adjmatrix_to_parents(adj)
-    node_order = _get_breadth_first_traversal(adj)
-
-    p_dgas = np.zeros((4,2,n_mut))
-    for d in d_range:
-        for t in (0,1):
-            for m in range(n_mut):
-                p_dgas[d,t,m] = np.log(p_data_given_truth_and_errors(d,t,fpr[m],ado[m],d_rng_i))
-        
-    outer_sum = 0
-    for i in range(n_cell):
-        #Consider the cell being attached to the root first
-        j = 0 
-        score_cell_at_nodes = np.zeros(n_clst+1)
-        for k in range(n_mut):
-            p_dga = p_dgas[data[k,i], anc[mut_ass[k],j], k]
-            score_cell_at_nodes[j] += p_dga
-        #Can now consider the rest of the nodes, making use 
-        #of the information calculated for each node's parent.
-        for j in node_order[1:]:
-            parent = parents[j-1]
-            score_cell_at_nodes[j] = score_cell_at_nodes[parent]
-            for k in range(n_mut):
-                if not (mut_ass[k]==j):
-                    continue
-                parent_cont_to_sub = p_dgas[data[k,i],0,k]
-                this_cont_to_add   = p_dgas[data[k,i],1,k]
-                score_cell_at_nodes[j] += this_cont_to_add - parent_cont_to_sub
-        score_cell_at_nodes = score_cell_at_nodes[1:]
-        B = np.max(score_cell_at_nodes)
-        mid = np.log(np.sum(np.exp(score_cell_at_nodes - B))) + B
-        outer_sum += mid
-    return outer_sum
-
-
-@njit(cache=True)
-def make_ancestral_from_adj(adj):
-    #Note: taken from Jeff's util code.
-    K = len(adj)
-    root = 0
-
-    assert np.all(1 == np.diag(adj))
-    expected_sum = 2 * np.ones(K)
-    expected_sum[root] = 1
-    assert np.array_equal(expected_sum, np.sum(adj, axis=0))
-
-    Z = np.copy(adj)
-    # np.fill_diagonal(Z, 0)
-    for i in range(Z.shape[0]):
-        Z[i,i] = 0
-        
-    stack = [root]
-    while len(stack) > 0:
-        P = stack.pop()
-        C = np.flatnonzero(Z[P])
-        if len(C) == 0:
-            continue
-        # Set ancestors of `C` to those of their parent `P`.
-        C_anc = np.copy(Z[:,P])
-        C_anc[P] = 1
-        # Turn `C_anc` into column vector.
-        Z[:,C] = np.expand_dims(C_anc, 1)
-        stack += list(C)
-    
-    for i in range(Z.shape[0]):
-        Z[i,i] = 1
-    assert np.array_equal(Z[root], np.ones(K))
-
-    return Z
 
 
 @njit(cache=True)
@@ -225,7 +137,7 @@ def _init_cluster_adj_mutrels(pairs_tensor):
     assert len(remaining) == 0
     return adj
 
-def _init_cluster_adj_branching(K):
+def _init_adj_branching(K):
     #NOTE: This code was copied from Jeff's tree_sampler.py
 
     cluster_adj = np.eye(K, dtype=np.int8)
@@ -538,12 +450,12 @@ def _generate_new_sample(old_samp, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_
     #Make the move and update the tree llh
     new_adj = _modify_tree(old_samp.adj, old_samp.anc, A, B)
 
-    new_anc = make_ancestral_from_adj(new_adj)
+    new_anc = convert_adjmatrix_to_ancmatrix(new_adj)
 
     new_samp = TreeSample(
         adj = new_adj,
         anc = new_anc,
-        llh = _calc_tree_llh(data, new_anc, mut_ass, FPR, ADO, d_rng_id)
+        llh = calc_tree_llh(data, new_anc, mut_ass, FPR, ADO, d_rng_id)
     )
 
     # `A_prime` and `B_prime` correspond to the node choices needed to reverse
@@ -590,7 +502,9 @@ def _init_chain(seed, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_id):
     np.random.seed(seed % 2**32)
 
     if np.random.uniform() < hparams.iota:
-        init_adj = _init_cluster_adj_mutrels(pairs_tensor)
+        # init_adj = _init_cluster_adj_mutrels(pairs_tensor)
+        init_tree, _ = init_tree_sample_DFPT(pairs_tensor,1,True,None)
+        init_adj = convert_parents_to_adjmatrix(init_tree.flatten())
     else:
         # Particularly since clusters may not be ordered by mean VAF, a branching
         # tree in which every node comes off the root is the least biased
@@ -598,13 +512,13 @@ def _init_chain(seed, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_id):
         # in the linear or random (which is partly linear, given that later clusters
         # aren't allowed to be parents of earlier ones) cases.
         K = pairs_tensor.shape[0] + 1
-        init_adj = _init_cluster_adj_branching(K)
+        init_adj = _init_adj_branching(K)
     
     common.ensure_valid_tree(init_adj)
 
-    init_anc = make_ancestral_from_adj(init_adj)
+    init_anc = convert_adjmatrix_to_ancmatrix(init_adj)
 
-    init_llh = _calc_tree_llh(data, init_anc, mut_ass, FPR, ADO, d_rng_id)
+    init_llh = calc_tree_llh(data, init_anc, mut_ass, FPR, ADO, d_rng_id)
 
     init_samp = TreeSample(
         adj = init_adj,
@@ -730,6 +644,7 @@ def sample_trees(sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, burn
     n_mut = pairs_tensor.shape[0]
 
   # Don't use (hard-to-debug) parallelism machinery unless necessary.
+    conv_stat = []
     if parallel > 0:
         import concurrent.futures
         import multiprocessing
@@ -751,7 +666,6 @@ def sample_trees(sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, burn
         chain_vars  = np.zeros([nchains, n_mut+1, n_mut+1])#manager.Array(np.array, np.zeros((n_mut+1, n_mut+1)))
         n_sampled = 0
 
-        conv_stat = []
         with progressbar(total=total, desc='Sampling trees', unit='tree', dynamic_ncols=True) as pbar:
             with concurrent.futures.ProcessPoolExecutor(max_workers=parallel, mp_context=multiprocessing.get_context("spawn")) as ex:
                 for C in range(nchains):
@@ -834,7 +748,7 @@ def sample_trees(sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, burn
     else:
         results = []
         for C in range(nchains):
-            results.append(_run_chain(sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, thinned_frac, seed + C + 1, d_rng_id, None, None))
+            results.append(_run_chain(sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, thinned_frac, burnin, seed + C + 1, d_rng_id, None, None))
     merged_adj = []
     merged_llh = []
     accept_rates = []
@@ -856,7 +770,7 @@ def sample_trees(sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, burn
         if this_best_tree.llh > best_tree.llh:
             best_tree = this_best_tree
     assert len(merged_adj) == len(merged_llh)
-    return (best_tree, merged_adj, merged_llh, accept_rates, chain_n_samples, conv_stat)
+    return (best_tree, np.array(merged_adj), merged_llh, accept_rates, chain_n_samples, conv_stat)
 
 
 def compute_posterior(adjms, llhs, sort_by_llh=True):

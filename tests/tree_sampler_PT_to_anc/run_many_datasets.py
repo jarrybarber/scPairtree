@@ -108,8 +108,56 @@ def main():
                     llhs, IS_adj_mat, IS_anc_mat = tree_sampler_PT_to_anc.calc_some_importance_sampling_values(samples, samp_probs, data, np.array([fpr]*n_mut), np.array([ado]*n_mut))
                     IS_calc_time = time.time() - s
                     np.savez_compressed(IS_res_fn, llhs=llhs, IS_adj_mat=IS_adj_mat, IS_anc_mat=IS_anc_mat, IS_calc_time=IS_calc_time)
+                
+                #Added July 12, 2023
+                #This is to run importance sampling where the distribution is just random trees sampled w/o using the pairs tensor
+                #To do this I'll copy the usual IS method but input a "pairs tensor" where all relationships are equal
+                PTN_samp_fn = os.path.join(resdir,"PTN_samples.npz")
+                if os.path.exists(PTN_samp_fn):
+                    print("Already sampled pairs tensor naive samples...")
+                    PTN_samps = np.load(PTN_samp_fn)
+                    PTN_samples = PTN_samps["PTN_samples"]
+                    PTN_samp_probs = PTN_samps["PTN_samp_probs"]
+                    PTN_samp_time = PTN_samps["PTN_samp_time"]
+                else:
+                    s = time.time()
+                    print("Sampling pairs tensor naive trees...")
+                    even_PT = np.zeros(pairs_tensor.shape) - np.inf
+                    even_PT[:,:,[Models.A_B, Models.B_A, Models.diff_branches]] = np.log(1/3)
+                    PTN_samples, PTN_samp_probs = tree_sampler_PT_to_anc.sample_trees(even_PT, n_samples, order_by_certainty=True, parallel=8)
+                    PTN_samp_time = time.time() - s
+                    np.savez_compressed(PTN_samp_fn, PTN_samples=PTN_samples, PTN_samp_probs=PTN_samp_probs, PTN_samp_time=PTN_samp_time)
 
 
+                PTN_IS_res_fn = os.path.join(resdir,"PTN_IS_res.npz")
+                if os.path.exists(PTN_IS_res_fn):
+                    print("Already computed IS_results. Remaking figures...")
+                    PTN_IS_res = np.load(PTN_IS_res_fn)
+                    PTN_llhs = PTN_IS_res["PTN_llhs"]
+                    PTN_IS_adj_mat = PTN_IS_res["PTN_IS_adj_mat"]
+                    PTN_IS_anc_mat = PTN_IS_res["PTN_IS_anc_mat"]
+                    PTN_IS_calc_time = PTN_IS_res["PTN_IS_calc_time"]
+                else:
+                    print("Running analysis and figure making...")
+                    s = time.time()
+                    PTN_llhs, PTN_IS_adj_mat, PTN_IS_anc_mat = tree_sampler_PT_to_anc.calc_some_importance_sampling_values(PTN_samples, PTN_samp_probs, data, np.array([fpr]*n_mut), np.array([ado]*n_mut))
+                    PTN_IS_calc_time = time.time() - s
+                    np.savez_compressed(PTN_IS_res_fn, PTN_llhs=PTN_llhs, PTN_IS_adj_mat=PTN_IS_adj_mat, PTN_IS_anc_mat=PTN_IS_anc_mat, PTN_IS_calc_time=PTN_IS_calc_time)
+
+                max_llh_tree_ind = np.argmax(llhs[:])
+                # print(llhs)
+                # print(llhs.shape)
+                # print(max_llh_tree_ind)
+                # print(samples)
+                max_llh_tree = np.squeeze(samples[max_llh_tree_ind,:])
+                max_llh_tree_adj = util.convert_parents_to_adjmatrix(max_llh_tree)
+                tree_fig = plot_tree(max_llh_tree_adj,title="Max LH sample")
+                tree_fig.savefig(os.path.join(figdir, "max_llh_tree.png"))
+                plt.close()
+                true_tree_fig = plot_tree(adj_mat,title="True tree")
+                true_tree_fig.savefig(os.path.join(figdir, "true_tree.png"))
+                plt.close()
+                # return
                 post_norm_const = tree_sampler_PT_to_anc.calc_posterior_norm_constant(llhs, samp_probs)
                 unique, uni_i, uniq_cnts = np.unique(samples,axis=0, return_index=True, return_counts=True)
                 uniq_ps = samp_probs[uni_i]
@@ -120,17 +168,23 @@ def main():
                 post_pdist_cov = np.sum(np.exp(uniq_post - np.max(uniq_post))*np.exp(np.max(uniq_post)))
                 n_better_actual = np.sum(llhs>=llh_act)
 
-                plt.figure(figsize=(6,6))
-                h = plt.hist(llhs,np.min([int(n_samples/10), 200]))
-                plt.plot([llh_act, llh_act], [0,np.max(h[0])], 'r--')
+                plt.figure(figsize=(7,7))
+                ax = plt.subplot(1,1,1)
+                ax.set_yscale("log")
+                h = plt.hist(llhs,np.min([int(n_samples/10), 200]), label="Samples using pairs tensor")
+                h2 = plt.hist(PTN_llhs,np.min([int(n_samples/10), 200]),color="r", label="Samples w/o pairs tensor")
+                plt.legend()
+                plt.plot([llh_act, llh_act], [0,np.max(h[0])], 'k--')
                 plt.title("Sampled tree likelihoods", fontsize=14)
                 plt.xlabel("LLH", fontsize=14)
                 plt.ylabel("Count", fontsize=14)
                 plt.yticks(fontsize=14)
                 plt.xticks(fontsize=14,rotation=30)
-                plt.savefig(os.path.join(figdir, "llh_hist.png"))
+                plt.tight_layout()
+                plt.savefig(os.path.join(figdir, "llh_hist.png"),dpi=300)
                 plt.close()
 
+            
                 new_pairs_tens = tree_sampler_PT_to_anc.calc_importance_sampling_pairs_tensor(samples,llhs,samp_probs)
                 node_rels = util.compute_node_relations(adj_mat)
                 act_pairs_tensor = np.zeros((n_mut,n_mut,NUM_MODELS))

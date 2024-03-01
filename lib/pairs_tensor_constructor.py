@@ -182,11 +182,12 @@ def construct_pairs_tensor(data, fpr, ado, d_rng_i, clst_ass=None, parallel=None
         #Let's just say each mutation is assigned its own cluster
         clst_ass = np.arange(nSNVs)
     assert len(clst_ass) == nSNVs
-    nClusts = len(np.unique(clst_ass))
+    clusts = np.sort(np.unique(clst_ass))
+    nClusts = len(clusts)
     
     pool = multiprocessing.Pool(parallel)
     pairwise_occurances, _ = determine_all_mutation_pair_occurance_counts(data, d_rng_i)
-    args = [[model, pairwise_occurances, fpr, ado, clst_ass, clst1, clst2, (not ignore_coclust), scale_integrand, quad_tol, d_rng_i] for model in mods for clst1 in range(nClusts-1) for clst2 in range(clst1+1,nClusts)]
+    args = [[model, pairwise_occurances, fpr, ado, clst_ass, clusts[c1], clusts[c2], (not ignore_coclust), scale_integrand, quad_tol, d_rng_i] for model in mods for c1 in range(nClusts-1) for c2 in range(c1+1,nClusts)]
     chunksize = int(np.ceil(nSNVs*nSNVs*len(mods)/2/parallel/8))
     results = pool.starmap(_calc_nonnorm_relationship_posterior,args,chunksize=chunksize)
     pool.close()

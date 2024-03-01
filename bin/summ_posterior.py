@@ -11,6 +11,7 @@ import result_serializer
 
 import json
 import util
+import tree_util
 import plotutil
 # import diversity_indices as di
 
@@ -112,7 +113,7 @@ def summarize(results, outf):
   print(plotutil.js_on_load("(new PosteriorSumm()).plot(results, '#trees .container');"), file=outf)
 
 def _make_congraph(results):
-  adjms = np.array([util.convert_parents_to_adjmatrix(struct) for struct in results.get('struct')])
+  adjms = np.array([tree_util.convert_parents_to_adjmatrix(struct) for struct in results.get('struct')])
   weights = results.get('prob')
   assert len(weights) == len(adjms)
   assert np.isclose(1, np.sum(weights))
@@ -263,7 +264,7 @@ def main():
   all_plot_choices = (
     'posterior_summ',
     'congraph',
-    # 'diversity_indices', # JB: removing for now, since I don't even do any clustering at the moment
+    # 'diversity_indices', # JB: removing for now, since I don't do any clustering at the moment
   )
 
   parser = argparse.ArgumentParser(
