@@ -8,8 +8,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
 from result_serializer import Results
 from pairs_tensor_plotter import plot_best_model
 from tree_plotter import plot_tree
-from tree_sampler_MCMC import _calc_tree_llh
-from util import make_ancestral_from_adj
+# from tree_util import calc_tree_llh, convert_adjmatrix_to_ancmatrix
+# import tree_util
 
 def _parse_args():
     parser = argparse.ArgumentParser(
@@ -95,10 +95,11 @@ def main():
     best_tree_adj = adjs[best_tree_ind]
 
     if args.act_tree_adj is not None:
-        act_tree_adj = np.loadtxt(args.act_tree_adj, dtype=np.int16)
-        act_tree_mut_adj = convert_nodeadj_to_mutadj(act_tree_adj, mut_assignments)
-        act_tree_anc = convert_adjmatrix_to_ancmatrix(act_tree_adj)
-        act_tree_llh = _calc_tree_llh(data,act_tree_anc,est_FPRs,est_ADOs,scp_args['d_rng_i'])
+        pass
+        # act_tree_adj = np.loadtxt(args.act_tree_adj, dtype=np.int16)
+        # act_tree_mut_adj = tree_util.convert_nodeadj_to_mutadj(act_tree_adj, mut_assignments)
+        # act_tree_anc = tree_util.convert_adjmatrix_to_ancmatrix(act_tree_adj)
+        # act_tree_llh = tree_util.calc_tree_llh(data,act_tree_anc,est_FPRs,est_ADOs,scp_args['d_rng_i'])
     else:
         act_tree_adj = None
         act_tree_anc = None

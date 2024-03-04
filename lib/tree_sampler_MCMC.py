@@ -1,8 +1,6 @@
 import numpy as np
-from numba import njit, objmode
+from numba import njit
 import math
-from scipy.special import logsumexp
-import time
 
 from progressbar import progressbar
 import hyperparams as hparams
@@ -10,7 +8,7 @@ import util
 import common
 from common import Models, NUM_MODELS, _EPSILON
 from tree_sampler_DFPT import sample_trees as init_tree_sample_DFPT
-from tree_util import convert_adjmatrix_to_ancmatrix, calc_tree_llh, convert_parents_to_adjmatrix
+from tree_util import convert_adjmatrix_to_ancmatrix, calc_tree_llh, convert_parents_to_adjmatrix, convert_adjmatrix_to_parents
 
 from collections import namedtuple
 TreeSample = namedtuple('TreeSample', (
@@ -778,7 +776,7 @@ def compute_posterior(adjms, llhs, sort_by_llh=True):
     unique = {}
 
     for A, L in zip(adjms, llhs):
-        parents = util.convert_adjmatrix_to_parents(A)
+        parents = convert_adjmatrix_to_parents(A)
         H = hash(parents.tobytes())
         if H in unique:
             assert np.isclose(L, unique[H]['llh'])

@@ -1,10 +1,9 @@
 import os
 import numpy as np
-from numba import njit, jit
-from scipy.special import loggamma, logsumexp
+from numba import njit
 from collections import namedtuple
 
-from common import Models, DataRangeIdx, DataRange, _EPSILON
+from common import Models, DataRange
 from tree_util import convert_adjmatrix_to_ancmatrix
 
 #Note, this may work better as a pandas object so that any sorting of 
@@ -105,25 +104,25 @@ def determine_mutation_pair_occurance_counts(data,pair_val):
 
 
 
-#I don't remember writing the below functions (convert nodadj to mutadj and vice versa)
-#What it should do seems obvious enough from the names, but in practice don't work
-#because node_adj and mut_adj should NOT have the same dimensions... 
-# I'm guessing this was important when I didn't do any clustering and so nMut = nNode, 
-#but now will need to be updated or at least deleted.
-# def convert_nodeadj_to_mutadj(node_adj, mut_assignments):
-#     print(len(mut_assignments),node_adj.shape[0]-1)
-#     assert len(mut_assignments) == node_adj.shape[0]-1
-#     mutadj = np.zeros(node_adj.shape,dtype=int)
-#     mut_assignments = np.append(0,mut_assignments)
-#     node_assignments = np.zeros(mut_assignments.shape,dtype=int)
-#     for i,a in enumerate(mut_assignments):
-#         node_assignments[a] = i
-#     for par, chld in np.argwhere(node_adj):
-#         mutadj[node_assignments[par], node_assignments[chld]] = 1
-#     return mutadj
+#The below is used in bin/make_supp_figures.py
+#Shouldn't work as it is since the assertion that n_muts == n_nodes is clearly wrong.
+#But will define it for now so that some code can work...
+def convert_nodeadj_to_mutadj(node_adj, mut_assignments):
+    pass
+    # print(len(mut_assignments),node_adj.shape[0]-1)
+    # assert len(mut_assignments) == node_adj.shape[0]-1
+    # mutadj = np.zeros(node_adj.shape,dtype=int)
+    # mut_assignments = np.append(0,mut_assignments)
+    # node_assignments = np.zeros(mut_assignments.shape,dtype=int)
+    # for i,a in enumerate(mut_assignments):
+    #     node_assignments[a] = i
+    # for par, chld in np.argwhere(node_adj):
+    #     mutadj[node_assignments[par], node_assignments[chld]] = 1
+    # return mutadj
 
-
-# def convert_mutadj_to_nodeadj(mut_adj, mut_assignments):
+#see description above
+def convert_mutadj_to_nodeadj(mut_adj, mut_assignments):
+    pass
 #     assert len(mut_assignments) == mut_adj.shape[0]-1
 #     node_adj = np.zeros(mut_adj.shape,dtype=int)
 #     mut_assignments = np.append(0,mut_assignments)
@@ -174,13 +173,6 @@ def softmax(V):
     smax /= np.sum(smax)
     #assert np.isclose(np.sum(smax), 1)
     return smax
-
-@njit(cache=True)
-def log_multinomial(lst):
-    res = log_factorial(np.sum(lst))
-    for a in lst:
-        res -= log_factorial(a)
-    return res
 
 @njit(cache=True)
 def log_factorial(i):

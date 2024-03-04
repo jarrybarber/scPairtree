@@ -1,7 +1,7 @@
 import numpy as np
 from numba import njit
 import common
-import util
+from util import find_first
 from pairs_tensor_util import p_data_given_truth_and_errors
 
 @njit(cache=True)
@@ -159,5 +159,5 @@ def convert_adjmatrix_to_parents(adj):
     np.fill_diagonal(adj, 0)
     parents = np.zeros(adj.shape[1]-1, dtype=np.int32)
     for i in range(1,adj.shape[1]):
-        parents[i-1] = util.find_first(1,adj[:,i])
+        parents[i-1] = find_first(1,adj[:,i])
     return parents#np.argmax(adj[:,1:], axis=0)

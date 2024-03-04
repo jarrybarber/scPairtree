@@ -5,7 +5,7 @@ RESDIR=~/work/sc_pairtree/tests/cellcoal/results
 
 function create_all_sims {
 
-  n_reps=100
+  n_reps=20
   n_sites=10000 #length of the genome... mutations can fall anywhere along here
   effective_population_size=10000 #Population size of entire sample we are drawing cells from
   pop_exponential_growth_rate=0.0001
@@ -21,11 +21,11 @@ function create_all_sims {
   sequencing_coverage=30
   FPR_var=0.0000001
 
-  #Sim 1: comparing muts / ncells
-  for n_muts in 50 100 200; do
-  for n_cells in 500 1000 10000; do 
-  for FPR in 0.001 0.01; do
-  for ADO in 0.1 0.25 0.5; do
+  #Sim 1: comparing nmuts / ncells
+  # for n_muts in 50 100 200; do
+  # for n_cells in 500 1000 10000; do 
+  # for FPR in 0.001; do
+  # for ADO in 0.25; do
 
   #Sim 2: comparing error rates
   # for n_muts in 50 100 200; do
@@ -35,14 +35,15 @@ function create_all_sims {
   #add in parameters so that ADO is selected from distribution
 
   #Just to test
-  # for n_muts in 50; do
-  # for n_cells in 500; do 
-  # for FPR in 0.001; do
-  # for ADO in 0.1; do
+  for n_muts in 50; do
+  for n_cells in 500; do 
+  for FPR in 0.001; do
+  for ADO in 0.25; do
     echo $n_muts $n_cells $sim
     # seed=`expr 1000 + $sim`
-    fn=m${n_muts}_c${n_cells}_fp${FPR}_ad${ADO}_ca${cell_alpha}_ma${mut_alpha}_dr${d_rng_id}_mc${min_cells_per_node}
+    fn=ISM/m${n_muts}_c${n_cells}_fp${FPR}_ad${ADO}
     out_fn=$SIMDIR/$fn
+    mkdir -p $out_fn
     
     # ${BINDIR}/cellcoal-1.2.0 -n1 -s20 -b0 -l100 -e10000 -g0.001 -j50 -k0.5 -q1 -u1.0e-07 -m0 -p0.0 -D0.0 -C5 -1 -2 -3 -4 -6 -Y -o$SIMDIR -y1
 
@@ -62,7 +63,7 @@ function create_all_sims {
                         -j$n_muts \
                         -D$ADO \
                         -G$FPR $FPR_var \
-                        -1 -2 -3 -4 -6 \
+                        -2 -4 -6 \
                         -Y \
                         -v \
                         -o$out_fn \

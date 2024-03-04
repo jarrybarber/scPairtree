@@ -5,12 +5,9 @@ import sys
 import numpy as np
 import multiprocessing
 import random
-import matplotlib.pyplot as plt
 import warnings
 import time
 import copy
-
-from sklearn.exceptions import DataConversionWarning
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
 import hyperparams
@@ -19,11 +16,9 @@ from error_rate_estimator import estimate_error_rates
 from mutation_clusterer import cluster_mutations
 from pairs_tensor_constructor import construct_pairs_tensor
 from tree_sampler_MCMC import sample_trees, compute_posterior
-from tree_plotter import plot_tree
-from pairs_tensor_plotter import plot_best_model
-from common import DataRange, DataRangeIdx
+from common import DataRangeIdx
 from result_serializer import Results
-import tree_sampler_PT_to_anc as dfpt_sampler
+import tree_sampler_DFPT
 
 
 def _parse_args():
@@ -226,11 +221,11 @@ def run(data, rerun, d_rng_i, variable_ado, n_clust_iter, clust_dir_alpha, trees
         else:
             print("Performing direct-from-pairs-tensor sampling...")
             s = time.time()
-            dfpt_samples, dfpt_sample_probs = dfpt_sampler.sample_trees(pairs_tensor,dfpt_nsamples)
+            dfpt_samples, dfpt_sample_probs = tree_sampler_DFPT.sample_trees(pairs_tensor,dfpt_nsamples)
             # unique_samples, uniq_post, uniq_qs = dfpt_sampler.calc_uniq_samples_with_IS_posterior_prob(dfpt_samples, dfpt_sample_probs, data, fpr, adr, mutation_cluster_assignments, d_rng_i)
-            log_posts = dfpt_sampler.calc_sample_posts(dfpt_samples, dfpt_sample_probs, data, fpr, adr, mutation_cluster_assignments, d_rng_i)
-            IS_adj_mat = dfpt_sampler.calc_IS_adj_mat(dfpt_samples, log_posts, dfpt_sample_probs)
-            IS_anc_mat = dfpt_sampler.calc_IS_anc_mat(dfpt_samples, log_posts, dfpt_sample_probs)
+            log_posts = tree_sampler_DFPT.calc_sample_posts(dfpt_samples, dfpt_sample_probs, data, fpr, adr, mutation_cluster_assignments, d_rng_i)
+            IS_adj_mat = tree_sampler_DFPT.calc_IS_adj_mat(dfpt_samples, log_posts, dfpt_sample_probs)
+            IS_anc_mat = tree_sampler_DFPT.calc_IS_anc_mat(dfpt_samples, log_posts, dfpt_sample_probs)
             res.add("dfpt_time", time.time() - s)
             res.add("dfpt_samples", dfpt_samples)
             res.add("dfpt_sample_probs", dfpt_sample_probs)
