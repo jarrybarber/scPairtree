@@ -27,21 +27,21 @@ def _parse_args():
     args = parser.parse_args()
     return args
 
-def _plot_err_est(fprs,ados,gene_names,outdir):
+def _plot_err_est(fprs,ados,mut_ids,outdir):
     plt.figure()
     plt.subplot(2,1,1)
     plt.title("Estimated false positive rates")
     plt.plot(fprs)
     plt.xlabel("Muts")
     plt.ylabel("Error frequency")
-    plt.xticks(np.arange(len(fprs)),gene_names)
+    plt.xticks(np.arange(len(fprs)),mut_ids)
 
     plt.subplot(2,1,2)
     plt.title("Estimated allelic dropout rate")
     plt.plot(ados)
     plt.xlabel("Muts")
     plt.ylabel("Error frequency")
-    plt.xticks(np.arange(len(fprs)),gene_names)
+    plt.xticks(np.arange(len(fprs)),mut_ids)
 
     plt.savefig(os.path.join(outdir,"estimated_error_rates.png"))
     return
@@ -79,9 +79,10 @@ def main():
 
     scp_args = res.get('scp_args')
     data = res.get('data')
-    gene_names = res.get('gene_names')
+    mut_ids = res.get('mut_ids')
     est_FPRs = res.get("est_FPRs")
     est_ADOs = res.get("est_ADOs")
+    est_mut_clust_ass = res.get("mutation_cluster_assignments")
     pairs_tensor = res.get("pairs_tensor")
     adjs = res.get("adj_mats")
     llhs = res.get("tree_llhs")
@@ -105,10 +106,10 @@ def main():
         act_tree_anc = None
         act_tree_llh = None
 
-    plot_best_model(pairs_tensor, outdir=args.outdir, snv_ids=gene_names, save_name="pairs_matrix.png")
-    _plot_err_est(est_FPRs,est_ADOs,gene_names,args.outdir)
+    plot_best_model(pairs_tensor, outdir=args.outdir, save_name="pairs_matrix.png")
+    _plot_err_est(est_FPRs,est_ADOs,mut_ids,args.outdir)
     _plot_chain_llhs(llhs,scp_args['tree_chains'],args.outdir,act_tree_llh)
-    fig = plot_tree(best_tree_adj, node_ids=gene_names)
+    fig = plot_tree(best_tree_adj)
     fig.savefig(os.path.join(args.outdir,"Highest llh tree"))
 
     return

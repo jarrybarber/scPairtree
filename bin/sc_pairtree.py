@@ -269,9 +269,9 @@ def main():
     if res.has("data") and not args.rerun:
         data = res.get("data")
     else:
-        data, gene_names = load_data(args.data_fn)
+        data, mut_ids = load_data(args.data_fn)
         res.add("data",data)
-        res.add("gene_names", gene_names)
+        res.add("mut_ids", mut_ids)
         res.save()
 
     ### RUN SCPAIRTREE ###

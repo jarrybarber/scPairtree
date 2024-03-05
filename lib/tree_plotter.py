@@ -4,38 +4,6 @@ import matplotlib.patches as mpatches
 
 def plot_tree(adj_mat, node_ids=None, title=""):
 
-    #First attempt stuff... Keep for now just in case comes in handy later when I want to spruce this up a bit.
-    # n_nodes = adj_mat.shape[0]
-    # nt_adj_mat = adj_mat - np.diag(np.diag(adj_mat))
-
-    # #The tree matrix will organize each node into a "layer" in the tree representation and store the parent of each node.
-    # # Rows represent node placement and parent, columns represent a layer of the tree.
-    # tree_mat = np.zeros((n_nodes,n_nodes)) - 1
-    
-    # #Root node is the node which has no parent
-    # root_node = np.where(np.sum(nt_adj_mat,axis=0) == 0)[0][0]
-    # tree_mat[root_node,0] = 0 #choose 0 because there is no parent
-
-    # #Then, iteratively find the children of the root and place in next node, storing parent.
-    # def place_children(node_ind, depth):
-    #     children = np.where(nt_adj_mat[node_ind,:]==1)[0]
-    #     if len(children)>0:
-    #         for child in children:
-    #             tree_mat[child, depth+1] = node_ind
-    #             place_children(child,depth+1)
-    #     return
-    # place_children(root_node,0)
-    
-    # #Remove unused layers
-    # nonempty_layers = np.any(tree_mat!=-1,axis=0)
-    # tree_mat = tree_mat[:,nonempty_layers]
-
-    #Let's actually plot.
-    # This is a recursive function
-    # Will plot a line until get to the end of the first leaf.
-    # Then, will go to branch closest to that leaf, add a row, plot that branch.
-    # Rinse and repeat until whole thing is plot
-
     if node_ids is None:
         node_ids = np.arange(1,adj_mat.shape[0])
     node_ids = np.append([0], node_ids)

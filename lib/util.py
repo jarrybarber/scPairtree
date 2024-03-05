@@ -37,12 +37,12 @@ def load_data(fn, data_dir=None):
         fn = os.path.join(data_dir,fn) 
     data = np.loadtxt(fn, dtype=np.int16)
 
-    if os.path.isfile(fn + ".mutnames"):
-        mut_names = np.loadtxt(fn + ".mutnames",dtype=str)
+    if os.path.isfile(fn + ".mutids"):
+        mut_ids = np.loadtxt(fn + ".mutids",dtype=str)
     else:
-        mut_names = np.arange(1,data.shape[0]+1)
+        mut_ids = np.arange(1,data.shape[0]+1)
 
-    return data, mut_names
+    return data, mut_ids
 
 
 def load_sim_data(fn):
