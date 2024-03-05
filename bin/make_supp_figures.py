@@ -91,6 +91,9 @@ def main():
     post_count = res.get('count')
     post_llh = res.get('llh')
     post_prob = res.get('prob')
+    if res.has("dfpt_IS_adj_mat"):
+        # dfpt_IS equivalent of a concensus graph
+        dfpt_IS_adj_mat = res.get("dfpt_IS_adj_mat")
 
     best_tree_ind = np.argmax(llhs)
     best_tree_adj = adjs[best_tree_ind]
@@ -105,6 +108,7 @@ def main():
         act_tree_adj = None
         act_tree_anc = None
         act_tree_llh = None
+    
 
     plot_best_model(pairs_tensor, outdir=args.outdir, save_name="pairs_matrix.png")
     _plot_err_est(est_FPRs,est_ADOs,mut_ids,args.outdir)

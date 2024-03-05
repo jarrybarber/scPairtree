@@ -5,10 +5,10 @@ import math
 from progressbar import progressbar
 import hyperparams as hparams
 import util
+import tree_util
 import common
 from common import Models, NUM_MODELS, _EPSILON
 from tree_sampler_DFPT import sample_trees as init_tree_sample_DFPT
-from tree_util import convert_adjmatrix_to_ancmatrix, calc_tree_llh, convert_parents_to_adjmatrix, convert_adjmatrix_to_parents
 
 from collections import namedtuple
 TreeSample = namedtuple('TreeSample', (
@@ -22,7 +22,7 @@ TreeSample = namedtuple('TreeSample', (
 @njit(cache=True)
 def _calc_tree_logmutrel(adj, pairs_tensor):
     #NOTE: This code was copied from Jeff's tree_sampler.py
-    node_rels = util.compute_node_relations(adj)
+    node_rels = tree_util.compute_node_relations(adj)
     K = len(node_rels)
     assert node_rels.shape == (K, K)
     assert pairs_tensor.shape == (K-1, K-1, NUM_MODELS)
@@ -253,7 +253,7 @@ def _make_W_dests_mutrel(subtree_head, curr_parent, adj, anc, pairs_tensor):
     cluster_idx = subtree_head - 1
     K = len(adj)
 
-    node_rels = util.compute_node_relations(adj)
+    node_rels = tree_util.compute_node_relations(adj)
 
     logweights = np.full(K, -np.inf)
     for dest in range(K):
@@ -448,12 +448,12 @@ def _generate_new_sample(old_samp, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_
     #Make the move and update the tree llh
     new_adj = _modify_tree(old_samp.adj, old_samp.anc, A, B)
 
-    new_anc = convert_adjmatrix_to_ancmatrix(new_adj)
+    new_anc = tree_util.convert_adjmatrix_to_ancmatrix(new_adj)
 
     new_samp = TreeSample(
         adj = new_adj,
         anc = new_anc,
-        llh = calc_tree_llh(data, new_anc, mut_ass, FPR, ADO, d_rng_id)
+        llh = tree_util.calc_tree_llh(data, new_anc, mut_ass, FPR, ADO, d_rng_id)
     )
 
     # `A_prime` and `B_prime` correspond to the node choices needed to reverse
@@ -502,7 +502,7 @@ def _init_chain(seed, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_id):
     if np.random.uniform() < hparams.iota:
         # init_adj = _init_cluster_adj_mutrels(pairs_tensor)
         init_tree, _ = init_tree_sample_DFPT(pairs_tensor,1,True,None)
-        init_adj = convert_parents_to_adjmatrix(init_tree.flatten())
+        init_adj = tree_util.convert_parents_to_adjmatrix(init_tree.flatten())
     else:
         # Particularly since clusters may not be ordered by mean VAF, a branching
         # tree in which every node comes off the root is the least biased
@@ -514,9 +514,9 @@ def _init_chain(seed, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_id):
     
     common.ensure_valid_tree(init_adj)
 
-    init_anc = convert_adjmatrix_to_ancmatrix(init_adj)
+    init_anc = tree_util.convert_adjmatrix_to_ancmatrix(init_adj)
 
-    init_llh = calc_tree_llh(data, init_anc, mut_ass, FPR, ADO, d_rng_id)
+    init_llh = tree_util.calc_tree_llh(data, init_anc, mut_ass, FPR, ADO, d_rng_id)
 
     init_samp = TreeSample(
         adj = init_adj,
@@ -776,7 +776,7 @@ def compute_posterior(adjms, llhs, sort_by_llh=True):
     unique = {}
 
     for A, L in zip(adjms, llhs):
-        parents = convert_adjmatrix_to_parents(A)
+        parents = tree_util.convert_adjmatrix_to_parents(A)
         H = hash(parents.tobytes())
         if H in unique:
             assert np.isclose(L, unique[H]['llh'])

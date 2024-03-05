@@ -4,10 +4,11 @@ import multiprocessing
 import time
 import queue
 import itertools
+import tree_util
 
 from common import Models, NUM_MODELS
-from util import logsumexp, compute_node_relations
-from tree_util import calc_tree_llh, convert_ancmatrix_to_parents, convert_parents_to_adjmatrix, convert_adjmatrix_to_ancmatrix
+from util import numba_logsumexp
+# from tree_util import calc_tree_llh, convert_ancmatrix_to_parents, convert_parents_to_adjmatrix, convert_adjmatrix_to_ancmatrix, compute_node_relations
 from progressbar import progressbar
 
 
@@ -31,7 +32,7 @@ def calc_importance_sampling_matrix(samples, ps, gs):
     n_samp = samples.shape[0]
     res = np.zeros(samples.shape[1:])
     log_ratios = ps - gs
-    norm_factor = logsumexp(log_ratios)
+    norm_factor = numba_logsumexp(log_ratios)
     log_ratios = log_ratios - norm_factor
     ratios = np.exp(log_ratios - np.max(log_ratios))
     for s in range(n_samp):
@@ -48,8 +49,8 @@ def calc_importance_sampling_pairs_tensor(samples, ps, gs):
     ratios = np.exp(ratios - np.max(ratios))
     for s in range(n_samp):
         sample = samples[s,:]
-        adj = convert_parents_to_adjmatrix(sample)
-        node_rels = compute_node_relations(adj)
+        adj = tree_util.convert_parents_to_adjmatrix(sample)
+        node_rels = tree_util.compute_node_relations(adj)
         for i in range(n_mut):
             for j in range(n_mut):
                 res[i,j,node_rels[i+1,j+1]] += ratios[s]
@@ -66,9 +67,9 @@ def calc_some_importance_sampling_values(samples, samp_probs, data, fprs, ados, 
     for i in range(n_samples):
         if verbose and i % int(n_samples/20) == 0:
             print(i, "/", n_samples)
-        adj = convert_parents_to_adjmatrix(samples[i,:])
-        anc = convert_adjmatrix_to_ancmatrix(adj)
-        llhs[i] = calc_tree_llh(data, anc, mut_ass, fprs, ados, 1)
+        adj = tree_util.convert_parents_to_adjmatrix(samples[i,:])
+        anc = tree_util.convert_adjmatrix_to_ancmatrix(adj)
+        llhs[i] = tree_util.calc_tree_llh(data, anc, mut_ass, fprs, ados, 1)
         
     ratios = llhs - samp_probs
     ratios = np.exp(ratios - np.max(ratios))
@@ -76,8 +77,8 @@ def calc_some_importance_sampling_values(samples, samp_probs, data, fprs, ados, 
     IS_anc_mat = np.zeros((n_mut+1, n_mut+1))
     IS_adj_mat = np.zeros((n_mut+1, n_mut+1))
     for i in range(n_samples):
-        adj = convert_parents_to_adjmatrix(samples[i,:])
-        anc = convert_adjmatrix_to_ancmatrix(adj)
+        adj = tree_util.convert_parents_to_adjmatrix(samples[i,:])
+        anc = tree_util.convert_adjmatrix_to_ancmatrix(adj)
         
         IS_adj_mat = IS_adj_mat + adj*ratios[i]
         IS_anc_mat = IS_anc_mat + anc*ratios[i]
@@ -92,7 +93,7 @@ def calc_IS_anc_mat(samples, log_posts, log_qs):
     n_samples, n_mut = samples.shape
     IS_anc_mat = np.zeros((n_mut+1,n_mut+1))
     for i in range(n_samples):
-        IS_anc_mat += np.exp(log_posts[i] - log_qs[i]) * convert_parents_to_ancmatrix(samples[i,:])
+        IS_anc_mat += np.exp(log_posts[i] - log_qs[i]) * tree_util.convert_parents_to_ancmatrix(samples[i,:])
     IS_anc_mat = IS_anc_mat / n_samples
     return IS_anc_mat
 
@@ -100,7 +101,7 @@ def calc_IS_adj_mat(samples, log_posts, log_qs):
     n_samples, n_mut = samples.shape
     IS_adj_mat = np.zeros((n_mut+1,n_mut+1))
     for i in range(n_samples):
-        IS_adj_mat += np.exp(log_posts[i] - log_qs[i]) * convert_parents_to_adjmatrix(samples[i,:])
+        IS_adj_mat += np.exp(log_posts[i] - log_qs[i]) * tree_util.convert_parents_to_adjmatrix(samples[i,:])
     IS_adj_mat = IS_adj_mat / n_samples
     return IS_adj_mat
 
@@ -126,8 +127,8 @@ def calc_sample_posts(samples, samp_probs, data, fprs, ados, mut_ass, d_rng_i):
 
     llhs = np.zeros(n_samples)
     for i in range(n_samples):
-        uniq_anc = convert_parents_to_ancmatrix(samples[i])
-        llhs[i] = _calc_tree_llh(data,uniq_anc,mut_ass,fprs,ados,d_rng_i)
+        uniq_anc = tree_util.convert_parents_to_ancmatrix(samples[i])
+        llhs[i] = tree_util.calc_tree_llh(data,uniq_anc,mut_ass,fprs,ados,d_rng_i)
     
     logC = np.log(n_samples) - numba_logsumexp(llhs - samp_probs)
     log_posts = logC + llhs
@@ -285,7 +286,7 @@ def _sample_tree(pairs_tensor, rng_i, rng_j, status=None):
     if status is not None:
         status.put(True)
 
-    return convert_ancmatrix_to_parents(anc), samp_prob
+    return tree_util.convert_ancmatrix_to_parents(anc), samp_prob
 
 numba.njit(cache=True)
 def _sample_trees(pairs_tensor, rng_i, rng_j, n_samples, status=None):
@@ -302,9 +303,9 @@ def _calc_sample_llhs(samples, data, mut_ass, fprs, ados, d_rng_i):
     n_samples = samples.shape[0]
     llhs = np.zeros(n_samples)
     for i in range(n_samples):
-        adj = convert_parents_to_adjmatrix(samples[i])
-        anc = convert_adjmatrix_to_ancmatrix(adj)
-        llhs[i] = calc_tree_llh(data,anc,mut_ass,fprs,ados,d_rng_i)
+        adj = tree_util.convert_parents_to_adjmatrix(samples[i])
+        anc = tree_util.convert_adjmatrix_to_ancmatrix(adj)
+        llhs[i] = tree_util.calc_tree_llh(data,anc,mut_ass,fprs,ados,d_rng_i)
     return llhs
 
 def calc_sample_llhs(samples, data, mut_ass, fprs, ados, d_rng_i, parallel=None):

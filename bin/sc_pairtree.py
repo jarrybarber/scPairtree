@@ -266,7 +266,7 @@ def main():
 
     
     ### LOAD IN THE DATA ###
-    if res.has("data") and not args.rerun:
+    if res.has("data") and res.has("mut_ids") and not args.rerun:
         data = res.get("data")
     else:
         data, mut_ids = load_data(args.data_fn)

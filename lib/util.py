@@ -3,8 +3,7 @@ import numpy as np
 from numba import njit
 from collections import namedtuple
 
-from common import Models, DataRange
-from tree_util import convert_adjmatrix_to_ancmatrix
+from common import DataRange
 
 #Note, this may work better as a pandas object so that any sorting of 
 #snvs and cells automatically works when sorting data matrix.
@@ -129,29 +128,6 @@ def convert_mutadj_to_nodeadj(mut_adj, mut_assignments):
 #     for par, chld in np.argwhere(mut_adj):
 #         node_adj[mut_assignments[par], mut_assignments[chld]] = 1
 #     return node_adj
-
-
-@njit(cache=True)
-def compute_node_relations(adj):
-    #Note: taken from Jeff's util code.
-    #May make sense to move somewhere else... Perhaps some tree or pairs tensor util.
-    K = len(adj)
-    anc = convert_adjmatrix_to_ancmatrix(adj)
-    for i in range(anc.shape[0]): 
-        anc[i,i] = 0
-
-    R = np.full((K, K), Models.diff_branches, dtype=np.int8)
-    for i in range(K):
-        for j in range(K):
-            if anc[i,j] == 1:
-                R[i,j] = Models.A_B
-            elif anc[j,i] == 1:
-                R[i,j] = Models.B_A
-                
-    for i in range(K):
-        R[i,i] = Models.cocluster
-    assert np.all(R[1:,0] == Models.B_A)
-    return R
 
 def calc_tensor_prob(tensor):
     #Should be 3 axis: 1st for models, 2nd and 3rd for SNV comps

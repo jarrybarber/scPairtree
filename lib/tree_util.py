@@ -1,6 +1,7 @@
 import numpy as np
 from numba import njit
 import common
+from common import Models
 from util import find_first
 from pairs_tensor_util import p_data_given_truth_and_errors
 
@@ -125,7 +126,7 @@ def convert_ancmatrix_to_parents(anc):
     
     parents = np.zeros(n_clust-1, dtype=np.int32)
     for child in range(1,n_clust):
-        is_anc_to_child = np.flatnonzero(this_anc[:,child])# np.argwhere(this_anc[:,child]).flatten()
+        is_anc_to_child = np.flatnonzero(this_anc[:,child])
         parent = 0
         for j in is_anc_to_child:
             is_dec_cur_par = this_anc[parent,j]
@@ -161,3 +162,24 @@ def convert_adjmatrix_to_parents(adj):
     for i in range(1,adj.shape[1]):
         parents[i-1] = find_first(1,adj[:,i])
     return parents#np.argmax(adj[:,1:], axis=0)
+
+
+@njit(cache=True)
+def compute_node_relations(adj):
+    K = len(adj)
+    anc = convert_adjmatrix_to_ancmatrix(adj)
+    for i in range(anc.shape[0]): 
+        anc[i,i] = 0
+
+    R = np.full((K, K), Models.diff_branches, dtype=np.int8)
+    for i in range(K):
+        for j in range(K):
+            if anc[i,j] == 1:
+                R[i,j] = Models.A_B
+            elif anc[j,i] == 1:
+                R[i,j] = Models.B_A
+                
+    for i in range(K):
+        R[i,i] = Models.cocluster
+    assert np.all(R[1:,0] == Models.B_A)
+    return R
