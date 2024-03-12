@@ -22,7 +22,6 @@ import tree_sampler_DFPT
 
 
 def _parse_args():
-    #NOTE: Mostly taken from Jeff's pairtree.py, though I have commented out a few things.
     parser = argparse.ArgumentParser(
         description='Build clone trees',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -34,7 +33,7 @@ def _parse_args():
     parser.add_argument('--rerun', dest='rerun', action='store_true',
         help='Regardless of whether this datafile has already been run, rerun all analysis.')
     parser.add_argument('--data-range', dest='d_rng_i', type=int, default=None,
-        help='Data range id. There are 3 options: (0: [0,1]; 1: [0,1,3]; 2: [1,2,3])')
+        help='Data range id. There are 3 options: (0: [0,1]; 1: [0,1,3]; 2: [0,1,2,3])')
     parser.add_argument('--adr', dest='adr', type=float, default=None,
         help='Allelic dropout rate. If not set then will be estimated from the data.')
     parser.add_argument('--fpr', dest='fpr', type=float, default=None,
@@ -70,6 +69,8 @@ def _parse_args():
     parser.add_argument('--only-build-tensor', dest='only_build_tensor', action='store_true',
         help='Exit after building pairwise relations tensor, without sampling any trees.')
     parser.add_argument('--disable-posterior-sort', dest='sort_by_llh', action='store_false',
+        help='Disable sorting posterior tree samples by descending probability, and instead list them in the order they were sampled')
+    parser.add_argument('--mut-id-fn', dest='mut_id_fn', type=str, default=None,
         help='Disable sorting posterior tree samples by descending probability, and instead list them in the order they were sampled')
     
     for K in hyperparams.defaults.keys():
@@ -266,12 +267,18 @@ def main():
 
     
     ### LOAD IN THE DATA ###
-    if res.has("data") and res.has("mut_ids") and not args.rerun:
+    if res.has("data") and not args.rerun:
         data = res.get("data")
     else:
-        data, mut_ids = load_data(args.data_fn)
+        data = load_data(args.data_fn)
         res.add("data",data)
-        res.add("mut_ids", mut_ids)
+        res.save()
+    if not res.has("mut_ids") or args.rerun:
+        if args.mut_id_fn is not None:
+            mut_ids = np.loadtxt(args.mut_id_fn)
+        else:
+            mut_ids = np.arange(data.shape[0])
+        res.add("mut_ids",mut_ids)
         res.save()
 
     ### RUN SCPAIRTREE ###

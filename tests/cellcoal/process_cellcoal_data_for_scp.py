@@ -64,7 +64,7 @@ def calc_true_anc(true_data, type="mut"):
         full_anc_mat[1:,1:] = anc_mat
         return full_anc_mat
     elif type=="clust":
-        clust_anc_mat, clst_inds, mut_clust_ass = np.unique(anc_mat,axis=0, return_inverse=True, return_index=True)
+        clust_anc_mat, clst_inds, mut_clust_ass = np.unique(anc_mat, axis=0, return_index=True, return_inverse=True)
         clust_anc_mat = clust_anc_mat[:,clst_inds]
         n_clust = clust_anc_mat.shape[0]
         full_anc_mat = np.zeros((n_clust+1,n_clust+1),dtype=int)
@@ -96,7 +96,7 @@ def filter_snvs(snv_data, snv_locations, min_ncell_to_call_snv):
 
 def identify_true_snv_locations(true_data):
     n_cells_w_mut = np.sum(true_data==1,axis=1)
-    snv_locs = np.argwhere(n_cells_w_mut>0)+1
+    snv_locs = np.array(np.nonzero(n_cells_w_mut)).flatten()+1
     return snv_locs
 
 def main():
@@ -110,6 +110,7 @@ def main():
     FPRs = [0.001]
     ADOs = [0.25]
     n_reps = 20
+    use_true_snvs = True
 
     #snv filtering criteria
         #we want very few false positive mutations. I.e., calls of an SNV where there isn't anything at all.
@@ -132,10 +133,19 @@ def main():
                         snv_data = snv_data.T
                         true_data = true_data.T
 
-                        min_ncell_to_call_snv = determine_min_cells_to_support_snv_call(n_cell, FPR, allowed_false_snv_call_rate)
-                        filtered_snv_data, filtered_snv_locations = filter_snvs(snv_data, snv_locations, min_ncell_to_call_snv)
-                        # true_snv_locs = identify_true_snv_locations(true_data)
-                        filtered_true_data, true_snv_locs = filter_snvs(true_data, np.arange(genome_size), 1)
+                        if use_true_snvs:
+                                #Look across all loci in the true dataset, identify those which have at least one mutation in a cell. Return their index+1, to keep in line with cellcoal indexing
+                            true_snv_locs = identify_true_snv_locations(true_data)
+                                #Subset the true data using loci which have mutations
+                            filtered_true_data = true_data[true_snv_locs-1,:]
+                                #snv_hap data already subsets the data into those loci with any muts. Let's further subset it using the true snvs.
+                            true_snv_inds = np.array( [i in true_snv_locs for i in snv_locations] )
+                            filtered_snv_data = snv_data[true_snv_inds,:]
+                            filtered_snv_locations = np.copy(true_snv_locs)
+                        else:
+                            min_ncell_to_call_snv = determine_min_cells_to_support_snv_call(n_cell, FPR, allowed_false_snv_call_rate)
+                            filtered_snv_data, filtered_snv_locations = filter_snvs(snv_data, snv_locations, min_ncell_to_call_snv)
+                            filtered_true_data, true_snv_locs = filter_snvs(true_data, np.arange(genome_size), 1)
                         
                         mut_anc_mat = calc_true_anc(filtered_true_data, type='mut')
                         clust_anc_mat, mut_clust_assignments = calc_true_anc(filtered_true_data, type='clust')
@@ -148,6 +158,8 @@ def main():
                         fn_true_snv_loc = os.path.join(out_dir,"true_snv_loc.{:04d}".format(rep+1))
                         fn_mut_anc_mat = os.path.join(out_dir,"true_mut_anc_mat.{:04d}".format(rep+1))
                         fn_clust_anc_mat = os.path.join(out_dir,"true_clust_anc_mat.{:04d}".format(rep+1))
+                        # fn_filtered_mut_anc_mat = os.path.join(out_dir,"true_filtered_mut_anc_mat.{:04d}".format(rep+1))
+                        # fn_filtered_clust_anc_mat = os.path.join(out_dir,"true_filtered_clust_anc_mat.{:04d}".format(rep+1))
                         fn_mut_clust_ass = os.path.join(out_dir,"true_mut_clst_ass.{:04d}".format(rep+1))
                         np.savetxt(fn_data, filtered_snv_data, fmt='%d', delimiter=" ")
                         np.savetxt(fn_snv_loc, filtered_snv_locations, fmt='%d', delimiter=" ")

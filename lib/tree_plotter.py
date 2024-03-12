@@ -4,6 +4,9 @@ import matplotlib.patches as mpatches
 
 def plot_tree(adj_mat, node_ids=None, title=""):
 
+    node_radius = 0.2
+    text_offset = [node_radius-0.02, -node_radius+0.02]
+
     if node_ids is None:
         node_ids = np.arange(1,adj_mat.shape[0])
     node_ids = np.append([0], node_ids)
@@ -14,8 +17,8 @@ def plot_tree(adj_mat, node_ids=None, title=""):
     ax = plt.subplot()
     def plot_children(node_ind, row, col):
         this_row = np.copy(row)
-        ax.add_patch(mpatches.Circle([col,row],0.2))
-        plt.text(col+0.1,row-0.4,str(node_ids[node_ind]),ha='center',fontsize=12)
+        ax.add_patch(mpatches.Circle([col,row], node_radius))
+        plt.text(col+text_offset[0],row+text_offset[1],str(node_ids[node_ind]),ha='left',va='top',fontsize=12)
         children = np.where(nt_adj_mat[node_ind,:]==1)[0]
         if len(children)>0:
             for i,child in enumerate(children):

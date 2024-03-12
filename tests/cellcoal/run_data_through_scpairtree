@@ -34,6 +34,9 @@ function run_all_sims {
     fn=m${n_mut}_c${n_cell}_fp${FPR}_ad${ADR}
 
     data_fn=$DATADIR/$fn/processed/data.$(printf "%04d" $sim)
+    mut_id_fn=$DATADIR/$fn/processed/snv_loc.$(printf "%04d" $sim)
+    act_mut_anc_fn=$DATADIR/$fn/processed/true_clust_anc_mat.$(printf "%04d" $sim)
+    act_mut_clust_fn=$DATADIR/$fn/processed/true_mut_clst_ass.$(printf "%04d" $sim)
     if $use_true_error_rates; then
       out_fn=$RESDIR/${fn}_act_error_rates
       log_fn=$LOGDIR/${fn}_act_error_rates.log
@@ -58,14 +61,14 @@ function run_all_sims {
     #                                         --thinned-frac $thin_frac \
     #                                         --adr $ADR \
     #                                         --fpr $FPR \
-    #                                         --rerun \
+    #                                         # --rerun \
     #                                         # --convergence-threshold $conv_thresh \
     #                                         # --convergence-min-nsamples $conv_min_samp \
     #                                         # --check-convergence-every $check_conv_every \
 
     # else
-    #   bsub -n10 -R rusage[mem=8] -W 48:00 -oo $log_fn.log \
-    #     \time -o $log_fn.time -f "Runtime: %E\n" \
+    #   # bsub -n10 -R rusage[mem=8] -W 48:00 -oo $log_fn.log \
+    #     # \time -o $log_fn.time -f "Runtime: %E\n" \
     #       python $BINDIR/sc_pairtree.py $data_fn \
     #                                         $out_fn \
     #                                         --seed $seed \
@@ -74,13 +77,14 @@ function run_all_sims {
     #                                         --trees-per-chain $tpc \
     #                                         --burnin $burnin \
     #                                         --thinned-frac $thin_frac \
+    #                                         --mut-id-fn $mut_id_fn \
     #                                         --rerun
     #                                         # --convergence-threshold $conv_thresh \
     #                                         # --convergence-min-nsamples $conv_min_samp \
     #                                         # --check-convergence-every $check_conv_every \
     # fi
                                           
-    python $BINDIR/make_supp_figures.py $out_fn --outdir $fig_fn --seed $seed # --act-tree-adj $act_mut_adj_fn
+    python $BINDIR/make_supp_figures.py $out_fn --outdir $fig_fn --seed $seed --act-tree-anc-fn $act_mut_anc_fn --act-mut-clust-fn $act_mut_clust_fn
   done
   done
   done

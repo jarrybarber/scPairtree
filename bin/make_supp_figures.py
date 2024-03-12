@@ -9,7 +9,7 @@ from result_serializer import Results
 from pairs_tensor_plotter import plot_best_model
 from tree_plotter import plot_tree
 # from tree_util import calc_tree_llh, convert_adjmatrix_to_ancmatrix
-# import tree_util
+import tree_util
 
 def _parse_args():
     parser = argparse.ArgumentParser(
@@ -20,8 +20,10 @@ def _parse_args():
         help='Integer seed used for pseudo-random number generator. Running scPairtree with the same seed on the same inputs will produce exactly the same result.')
     parser.add_argument('--outdir', dest='outdir', default=None,
         help='Directory in which to save the figures.')
-    parser.add_argument('--act-tree-adj', dest='act_tree_adj',default=None,
-        help='(Optional) File containing the adjacency matrix of the actual tree, if this tree is known.')
+    parser.add_argument('--act-tree-anc-fn', dest='act_tree_anc_fn',default=None,
+        help='(Optional) File containing the ancestry matrix of the actual tree, if this tree is known.')
+    parser.add_argument('--act-mut-clust-fn', dest='act_mut_clust_fn',default=None,
+        help='(Optional) File containing a list of actual mutation clusterings. List should be of length n_mut and each element reports which cluster a mutation belongs to.')
     
     parser.add_argument('results_fn')
     args = parser.parse_args()
@@ -95,25 +97,42 @@ def main():
         # dfpt_IS equivalent of a concensus graph
         dfpt_IS_adj_mat = res.get("dfpt_IS_adj_mat")
 
+    n_mut, n_cell = data.shape
     best_tree_ind = np.argmax(llhs)
     best_tree_adj = adjs[best_tree_ind]
 
-    if args.act_tree_adj is not None:
-        pass
-        # act_tree_adj = np.loadtxt(args.act_tree_adj, dtype=np.int16)
-        # act_tree_mut_adj = tree_util.convert_nodeadj_to_mutadj(act_tree_adj, mut_assignments)
-        # act_tree_anc = tree_util.convert_adjmatrix_to_ancmatrix(act_tree_adj)
-        # act_tree_llh = tree_util.calc_tree_llh(data,act_tree_anc,est_FPRs,est_ADOs,scp_args['d_rng_i'])
+    if args.act_tree_anc_fn is not None:
+        act_tree_anc = np.loadtxt(args.act_tree_anc_fn, dtype=int)
+        if args.act_mut_clust_fn is not None:
+            act_mut_clust_ass = np.loadtxt(args.act_mut_clust_fn, dtype=int)
+            assert n_mut == len(act_mut_clust_ass)
+        else:
+            assert n_mut+1 == act_tree_anc.shape[0]
+            act_mut_clust_ass = np.arange(1,n_mut+1)
+        act_tree_llh = tree_util.calc_tree_llh(data, act_tree_anc, act_mut_clust_ass, est_FPRs, est_ADOs, scp_args['d_rng_i'])
+        n_clusters = np.max(act_mut_clust_ass)
+        clust_names = []
+        for C in range(1,n_clusters+1):
+            muts_in_clust = mut_ids[np.nonzero(act_mut_clust_ass==C)]
+            clust_names.append( "\n".join([str(int(i)) for i in muts_in_clust]) )
+        act_tree_adj = tree_util.convert_ancmatrix_to_adjmatrix(act_tree_anc)
+        fig = plot_tree(act_tree_adj, clust_names)
+        fig.savefig(os.path.join(args.outdir,"True tree"))
     else:
-        act_tree_adj = None
-        act_tree_anc = None
         act_tree_llh = None
+    
+    #Set cluster names to be based on the names of the muts they're made of
+    n_clusters = np.max(est_mut_clust_ass)
+    clust_names = []
+    for C in range(1,n_clusters+1):
+        muts_in_clust = mut_ids[np.nonzero(est_mut_clust_ass==C)]
+        clust_names.append( "\n".join([str(int(i)) for i in muts_in_clust]) )
     
 
     plot_best_model(pairs_tensor, outdir=args.outdir, save_name="pairs_matrix.png")
     _plot_err_est(est_FPRs,est_ADOs,mut_ids,args.outdir)
     _plot_chain_llhs(llhs,scp_args['tree_chains'],args.outdir,act_tree_llh)
-    fig = plot_tree(best_tree_adj)
+    fig = plot_tree(best_tree_adj, clust_names)
     fig.savefig(os.path.join(args.outdir,"Highest llh tree"))
 
     return
