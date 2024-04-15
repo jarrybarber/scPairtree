@@ -159,6 +159,7 @@ def run(data, rerun, d_rng_i, variable_ado, n_clust_iter, clust_dir_alpha, trees
         mutation_cluster_assignments = cluster_mutations(data, fpr, adr, n_clust_iter, burnin, clust_dir_alpha, d_rng_i, ret_all_iters=False)
         res.add("clustering_time", time.time() - s)
         res.add("mutation_cluster_assignments",mutation_cluster_assignments)
+        res.save()
 
     ### CONSTRUCT THE PAIRS TENSOR ###
     if res.has("pairs_tensor") and not rerun:

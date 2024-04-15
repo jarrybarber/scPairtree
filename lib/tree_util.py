@@ -64,7 +64,6 @@ def convert_adjmatrix_to_ancmatrix(adj):
     #Note: taken from Pairtree's util code.
     K = len(adj)
     root = 0
-
     assert np.all(1 == np.diag(adj))
     expected_sum = 2 * np.ones(K)
     expected_sum[root] = 1
@@ -143,7 +142,6 @@ def convert_parents_to_ancmatrix(parents):
     return anc
 
 
-#Taken from Pairtree
 @njit(cache=True)
 def convert_parents_to_adjmatrix(parents):
     K = len(parents) + 1
@@ -153,7 +151,6 @@ def convert_parents_to_adjmatrix(parents):
     return adjm
 
 
-#Taken from Pairtree
 @njit(cache=True)
 def convert_adjmatrix_to_parents(adj):
     adj = np.copy(adj)
@@ -183,3 +180,18 @@ def compute_node_relations(adj):
         R[i,i] = Models.cocluster
     assert np.all(R[1:,0] == Models.B_A)
     return R
+
+def convert_clust_noderel_to_mut_noderel(clust_noderel, mut_assignments):
+    #Uses mutation assignments to convert a cluster relationship matrix to a mutation relationship matrix
+    assert np.all(mut_assignments>0)
+    n_mut = len(mut_assignments)
+    n_clust = len(clust_noderel)
+    mut_assignments = np.append([0], mut_assignments)
+    mut_noderel = np.zeros((n_mut+1,n_mut+1),dtype=int)
+    for par in range(n_clust):
+        for chld in range(n_clust):
+            mut_in_par = np.flatnonzero(mut_assignments==par)
+            mut_in_chld = np.flatnonzero(mut_assignments==chld)
+            x_ind, y_ind = np.meshgrid(mut_in_par, mut_in_chld, indexing="ij")
+            mut_noderel[x_ind, y_ind] = clust_noderel[par, chld]
+    return mut_noderel

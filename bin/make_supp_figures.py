@@ -114,7 +114,7 @@ def main():
         clust_names = []
         for C in range(1,n_clusters+1):
             muts_in_clust = mut_ids[np.nonzero(act_mut_clust_ass==C)]
-            clust_names.append( "\n".join([str(int(i)) for i in muts_in_clust]) )
+            clust_names.append( "\n".join([str(int(i)) for i in np.sort(muts_in_clust)]) )
         act_tree_adj = tree_util.convert_ancmatrix_to_adjmatrix(act_tree_anc)
         fig = plot_tree(act_tree_adj, clust_names)
         fig.savefig(os.path.join(args.outdir,"True tree"))
