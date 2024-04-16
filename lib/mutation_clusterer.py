@@ -37,6 +37,7 @@ def _p_model_given_clust_ass_and_clust_phis(model, clust_ass1, clust_ass2, phi1,
 @njit(cache=True)
 def _log_p_data_given_theta_phi_and_pi(n_mut, fprs, adrs, phis, pis, pairwise_occurances, d_rng_i):
     models_to_sum_over = [Models.A_B, Models.B_A, Models.cocluster, Models.diff_branches]
+    # models_to_sum_over = [Models.A_B, Models.B_A, Models.diff_branches]
     llh = 0
     for a in range(n_mut):
         fpr_a = fprs[a]
@@ -62,6 +63,7 @@ def _p_data_given_theta_phi_and_pi(n_mut, fprs, adrs, phis, pis, pairwise_occura
 @njit(cache=True)
 def _mut_i_LLH_fraction(fpr_i, adr_i, phi_i, pi_i, i, n_mut, fprs, adrs, phis, pis, pairwise_occurances, d_rng_i):
     models_to_sum_over = [Models.A_B, Models.B_A, Models.cocluster, Models.diff_branches]
+    # models_to_sum_over = [Models.A_B, Models.B_A, Models.diff_branches]
     llh = 0
     for m in range(n_mut):
         if m==i:
@@ -85,6 +87,7 @@ def _mut_i_LH_fraction(fpr_i, adr_i, phi_i, pi_i, i, n_mut, fprs, adrs, phis, pi
 def _phi_i_LLH_fraction(phi_i, muts_in_clust_i, clst_i, n_mut, fprs, adrs, phis, pis, pairwise_occurances, d_rng_i):
     llh = 0
     models_to_sum_over = [Models.A_B, Models.B_A, Models.cocluster, Models.diff_branches]
+    # models_to_sum_over = [Models.A_B, Models.B_A, Models.diff_branches]
     for a in range(n_mut):
         fpr_a = fprs[a]
         adr_a = adrs[a]

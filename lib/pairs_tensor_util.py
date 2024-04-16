@@ -45,7 +45,7 @@ def p_phi_given_model(model, phi_a, phi_b): #P(phi|M)
     return 0.0 #necessary for numba to not get confused
 
 @njit('f8(i1,f8,f8)', cache=True)
-def _p_model_given_phi(model, phi_a, phi_b): #P(M|Phi) - Used in error rate estimation.
+def _p_model_given_phi(model, phi_a, phi_b): #P(M|Phi) - Used in error rate estimation and mutation clustering
     
     if (phi_a<0) or (phi_b<0) or (phi_b>1) or (phi_b>1):
         return 0
@@ -53,7 +53,7 @@ def _p_model_given_phi(model, phi_a, phi_b): #P(M|Phi) - Used in error rate esti
     if model == Models.A_B:
         if phi_a >= phi_b:
             if phi_a + phi_b <= 1:
-                return 0.5
+                return 1/3 #0.5
             else:
                 return 1.0
         else:
@@ -61,20 +61,20 @@ def _p_model_given_phi(model, phi_a, phi_b): #P(M|Phi) - Used in error rate esti
     elif model == Models.B_A:
         if phi_a <= phi_b:
             if phi_a + phi_b <= 1:
-                return 0.5
+                return 1/3 #0.5
             else:
                 return 1.0
         else:
             return 0.0
     elif model == Models.diff_branches:
         if phi_a + phi_b <= 1:
-            return 0.5
+            return 2/3 #0.5
         else:
             return 0.0
     elif model == Models.garbage:
         return 1.0
     elif model == Models.cocluster:
-        raise Exception("p(M|Phi) only accepts branched, ancestral and descendent relationships as input.\n\n I am currently only using this to estimate error rates and so only these models should be used. If something changes then make something else...")
+        raise ValueError("p(M|Phi) only accepts garbage, branched, ancestral and descendent relationships as input.\n\n The co-clustered relationship prior is currently unused and so is not yet defined.")
     
     return 0.0 #necessary for numba to not get confused
 
