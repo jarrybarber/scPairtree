@@ -1,6 +1,6 @@
 import numpy as np
 
-from pairs_tensor_util import _log_p_data_given_model_phis_and_errors, _p_model_given_phi
+from pairs_tensor_util import _log_p_data_given_model_phis_and_errors, p_model_given_phi
 from util import  determine_all_mutation_pair_occurance_counts
 from common import Models, DataRangeIdx, DataRange
 import time
@@ -31,7 +31,7 @@ def _p_model_given_clust_ass_and_clust_phis(model, clust_ass1, clust_ass2, phi1,
         if (clust_ass1 == clust_ass2):
             return 0.0
         else:
-            return _p_model_given_phi(model, phi1, phi2)
+            return p_model_given_phi(model, phi1, phi2)
     return 0.0 #Required for Numba to work
 
 @njit(cache=True)
@@ -96,6 +96,7 @@ def _phi_i_LLH_fraction(phi_i, muts_in_clust_i, clst_i, n_mut, fprs, adrs, phis,
             phi_a = phi_i
         else:
             phi_a = phis[pi_a]
+
         for b in muts_in_clust_i:
             if a==b:
                 continue
@@ -128,7 +129,13 @@ def _monte_carlo_sample_given_continuous_pdf(pdf, max_pdf, lower_bound, upper_bo
         samp_f = pdf(samp_x)
         i += 1
         if i > 1000:
+            x = np.linspace(lower_bound,upper_bound,100)
+            y = [pdf(x_i) for x_i in x]
+            plt.plot(x,y)
+            plt.hlines(max_pdf,lower_bound,upper_bound,"red","dashed")
+            plt.savefig("pdf_that_MC_sampling_failed_on.png")
             raise Exception("Number of attempts to sample from pdf exceeded maximum allowed. \nEnsure that the pdf is well defined and that the max value input isn't too much larger than the true max(pdf).")
+        
     return samp_x
 
 
@@ -253,8 +260,34 @@ def _update_phi(clst_i, pairwise_occurances, n_mut, fprs, adrs, phis, pis, d_rng
     log_norm_val = np.log(quad(phi_i_lh, lower_bound, upper_bound, limit=np.max([50,2*len(discontinuity_points)]), points=discontinuity_points)[0])+llh_max
     
     phi_post = lambda x: _phi_i_LH_fraction(x, muts_in_clust_i, clst_i, n_mut, fprs, adrs, phis, pis, pairwise_occurances, d_rng_i, scale=log_norm_val)
-    
-    new_phi = _monte_carlo_sample_given_continuous_pdf(pdf=phi_post, max_pdf=phi_post(phi_max), lower_bound=lower_bound, upper_bound=upper_bound)
+    try:
+        new_phi = _monte_carlo_sample_given_continuous_pdf(pdf=phi_post, max_pdf=phi_post(phi_max), lower_bound=lower_bound, upper_bound=upper_bound)
+    except Exception as e:
+        print("monte carlo sampling failed...")
+        print("phi_post (the pdf) has the following input parameters:")
+        print("  muts_in_clust_i: {}".format(muts_in_clust_i))
+        print("  clust_i: {}".format(clst_i))
+        print("  phis: {}".format(phis))
+        print("  pis: {}".format(pis))
+        # print("  pairwise_occurances: {}".format(pairwise_occurances))
+        print("  scale: {}".format(log_norm_val))
+        print("  saving a figure to show pdf and what it's max should be")
+        x = np.linspace(lower_bound,upper_bound,10000)
+        y = np.array([to_max(xi) for xi in x])
+        maxy = np.max(y)
+        maxx = x[np.argmax(y)]
+        plt.figure()
+        plt.plot(x,y)
+        plt.hlines(maxy,lower_bound,upper_bound,'red','dashed')
+        # plt.vlines(maxx,np.min(y),maxy*1.05,'red','dashed')
+        plt.hlines(llh_max,lower_bound,upper_bound,'black','dashed')
+        # plt.vlines(phi_max,np.min(y),llh_max*1.05,'black','dashed')
+        plt.title("Red = actual; Black = est from _find_max_and_bounds_of_logfun")
+        plt.savefig("fun_2_max_on_failed_clustering.png")
+        
+        raise(e)
+        
+
     phis[clst_i] = new_phi
 
     return phis

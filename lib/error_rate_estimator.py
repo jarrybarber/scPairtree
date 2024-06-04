@@ -6,7 +6,7 @@
 import numpy as np
 from scipy.optimize import minimize
 
-from pairs_tensor_util import _log_p_data_given_model_phis_and_errors, p_phi_given_model, _p_model_given_phi
+from pairs_tensor_util import _log_p_data_given_model_phis_and_errors, p_phi_given_model, p_model_given_phi
 from util import  determine_all_mutation_pair_occurance_counts
 from common import Models, DataRangeIdx, DataRange
 from common import _EPSILON
@@ -17,13 +17,13 @@ from numba import njit
 #     assert n_mut==len(betas)
 #     assert n_mut==len(phis)
 
-#     AB_scores     = np.array([[    np.log(_p_model_given_phi(Models.A_B,phis[i],phis[j]))
+#     AB_scores     = np.array([[    np.log(p_model_given_phi(Models.A_B,phis[i],phis[j]))
 #                                  - np.log(p_phi_given_model(Models.A_B,phis[i],phis[j]))
 #                                  + _log_p_data_given_model_phis_and_errors(Models.A_B,pairwise_occurances[:,:,i,j],alphas[i],alphas[j],betas[i],betas[j],phis[i],phis[j],d_rng_i) 
 #                                 for j in range(n_mut)]
 #                             for i in range(n_mut)])
 #     BA_scores     = np.transpose(AB_scores)
-#     branch_scores = np.array([[   np.log(_p_model_given_phi(Models.diff_branches,phis[i],phis[j]))
+#     branch_scores = np.array([[   np.log(p_model_given_phi(Models.diff_branches,phis[i],phis[j]))
 #                                 - np.log(p_phi_given_model(Models.diff_branches,phis[i],phis[j]))
 #                                 + _log_p_data_given_model_phis_and_errors(Models.diff_branches,pairwise_occurances[:,:,i,j],alphas[i],alphas[j],betas[i],betas[j],phis[i],phis[j],d_rng_i)
 #                                 if i>=j else 0 
@@ -57,7 +57,7 @@ def _calc_to_min_val(alphas,betas,phis,pairwise_occurances,d_rng_i):
             if phis[j]>phis[i]:
                 AB_score = -np.inf
             else:
-                AB_score = np.log(_p_model_given_phi(Models.A_B,phis[i],phis[j])) \
+                AB_score = np.log(p_model_given_phi(Models.A_B,phis[i],phis[j])) \
                          - np.log(p_phi_given_model(Models.A_B,phis[i],phis[j])) \
                          + _log_p_data_given_model_phis_and_errors(Models.A_B,pairwise_occurances[:,:,i,j],alphas[i],alphas[j],betas[i],betas[j],phis[i],phis[j],d_rng_i)
             scores[0,i,j] = AB_score
@@ -68,7 +68,7 @@ def _calc_to_min_val(alphas,betas,phis,pairwise_occurances,d_rng_i):
             if phis[i] + phis[j] > 1:
                 branch_score = -np.inf
             else:
-                branch_score =  np.log(_p_model_given_phi(Models.diff_branches,phis[i],phis[j])) \
+                branch_score =  np.log(p_model_given_phi(Models.diff_branches,phis[i],phis[j])) \
                               - np.log(p_phi_given_model(Models.diff_branches,phis[i],phis[j])) \
                               + _log_p_data_given_model_phis_and_errors(Models.diff_branches,pairwise_occurances[:,:,i,j],alphas[i],alphas[j],betas[i],betas[j],phis[i],phis[j],d_rng_i)
             scores[2,i,j] = branch_score

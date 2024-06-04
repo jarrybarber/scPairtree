@@ -88,12 +88,13 @@ def _calc_nonnorm_relationship_posterior(model, pairwise_occurances, fprs, ados,
         print("The scale is inf...")
         print("scale =", scale)
         print("min_f_x =", min_res['x'])
-        print("score =", score[0], np.log(score[0]))
+        print("score =", score[0])
     if np.isinf(np.log(score[0])):
         print("The score is inf...")
+        print("model =", model)
         print("scale =", scale)
         print("min_f_x =", min_res['x'])
-        print("score =", score[0], np.log(score[0]))
+        print("score =", score[0])
         
         print("min fun args:")
         print("x0 =", x0)
@@ -202,5 +203,5 @@ def construct_pairs_tensor(data, fpr, ado, d_rng_i, clst_ass=None, parallel=None
                 k+=1
     pool.terminate()
     tensor = _complete_tensor(tensor)
-    # tensor = _normalize_pairs_tensor(tensor, ignore_coclust=ignore_coclust, ignore_garbage=ignore_garbage)
+    tensor = _normalize_pairs_tensor(tensor, ignore_coclust=ignore_coclust, ignore_garbage=ignore_garbage)
     return tensor

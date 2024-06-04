@@ -5,8 +5,8 @@ from common import Models, DataRangeIdx, DataRange, get_d_range
 ISCLOSE_TOLERANCE = 1e-8
 
 @njit(cache=True)
-def p_model(model, inc_cocluster=False):
-    pm = -1
+def p_model(model, inc_cocluster):
+    pm = -1.0
     if inc_cocluster:
         pm = 1/4
     else:
@@ -15,17 +15,17 @@ def p_model(model, inc_cocluster=False):
 
 @njit('f8(i1,f8,f8)', cache=True)
 def p_phi_given_model(model, phi_a, phi_b): #P(phi|M)
-    
+
     if (phi_a<0) or (phi_b<0) or (phi_b>1) or (phi_b>1):
-        return 0
+        return 0.0
     
     if model == Models.A_B:
-        if phi_a >= phi_b:
+        if phi_a > phi_b:
             return 2.0
         else:
             return 0.0
     elif model == Models.B_A:
-        if phi_a <= phi_b:
+        if phi_a < phi_b:
             return 2.0
         else:
             return 0.0
@@ -34,47 +34,50 @@ def p_phi_given_model(model, phi_a, phi_b): #P(phi|M)
             return 2.0
         else:
             return 0.0
-    elif model == Models.cocluster:
-        if np.abs(phi_a-phi_b) < ISCLOSE_TOLERANCE:
-            return 1.0
-        else:
-            return 0.0
     elif model == Models.garbage:
         return 1.0
+    elif model == Models.cocluster:
+        if (np.abs(phi_a-phi_b) < ISCLOSE_TOLERANCE):
+            return 1/np.sqrt(2)
+        else:
+            return 0.0
     
     return 0.0 #necessary for numba to not get confused
 
 @njit('f8(i1,f8,f8)', cache=True)
-def _p_model_given_phi(model, phi_a, phi_b): #P(M|Phi) - Used in error rate estimation and mutation clustering
-    
+def p_model_given_phi(model, phi_a, phi_b): #P(M|Phi) - Used in error rate estimation and mutation clustering
+
     if (phi_a<0) or (phi_b<0) or (phi_b>1) or (phi_b>1):
         return 0
     
     if model == Models.A_B:
-        if phi_a >= phi_b:
+        if phi_a > phi_b:
             if phi_a + phi_b <= 1:
-                return 1/3 #0.5
+                return 0.5
             else:
                 return 1.0
         else:
             return 0.0
     elif model == Models.B_A:
-        if phi_a <= phi_b:
+        if phi_a < phi_b:
             if phi_a + phi_b <= 1:
-                return 1/3 #0.5
+                return 0.5
             else:
                 return 1.0
         else:
             return 0.0
     elif model == Models.diff_branches:
         if phi_a + phi_b <= 1:
-            return 2/3 #0.5
+            return 0.5
         else:
             return 0.0
     elif model == Models.garbage:
         return 1.0
     elif model == Models.cocluster:
-        raise ValueError("p(M|Phi) only accepts garbage, branched, ancestral and descendent relationships as input.\n\n The co-clustered relationship prior is currently unused and so is not yet defined.")
+        if (np.abs(phi_a-phi_b) < ISCLOSE_TOLERANCE):
+            return 1.0
+        else:
+            return 0.0
     
     return 0.0 #necessary for numba to not get confused
 
