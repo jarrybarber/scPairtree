@@ -221,9 +221,6 @@ def _update_pi(i, pairwise_occurances, n_mut, n_clust, fprs, adrs, phis, pis, es
     non_norm_log_clust_post = np.array([pi_i_llh(i)+pi_log_prior(i) for i in range(n_clust_to_consider)])
     log_norm_val = numba_logsumexp(non_norm_log_clust_post)
     clust_post = np.exp(non_norm_log_clust_post-log_norm_val)
-    print([pi_i_llh(i) for i in range(n_clust_to_consider)])
-    print([pi_log_prior(i) for i in range(n_clust_to_consider)])
-    print(clust_post)
     new_pi_i = np.random.choice(n_clust_to_consider,p=clust_post)
 
     if new_pi_i not in pis:
@@ -238,7 +235,7 @@ def _update_pi(i, pairwise_occurances, n_mut, n_clust, fprs, adrs, phis, pis, es
         pis[pis>old_pi_i] = pis[pis>old_pi_i] - 1
         phis = np.delete(phis,old_pi_i)
         n_clust -= 1
-    return pis, phis
+    return pis, phis, n_clust
 
 
 def _update_phi(clst_i, pairwise_occurances, n_mut, fprs, adrs, phis, pis, d_rng_i):
@@ -315,12 +312,9 @@ def _perform_gibbs_sampling(pairwise_occurances, n_clust, n_mut, adrs, fprs, pis
         if iter % 5 == 0:
             print("Iter: {}/{}".format(iter,n_iter))       
         for i in range(n_clust):
-            print(phis)
             phis = _update_phi(i, pairwise_occurances, n_mut, fprs, adrs, phis, pis, d_rng_i)
         for i in range(n_mut):
-            print(pis)
-            # print(phis)
-            pis, phis = _update_pi(i, pairwise_occurances, n_mut, n_clust, fprs, adrs, phis, pis, est_mut_phis, d_rng_i, log_pi_dirichlet_alpha)
+            pis, phis, n_clust = _update_pi(i, pairwise_occurances, n_mut, n_clust, fprs, adrs, phis, pis, est_mut_phis, d_rng_i, log_pi_dirichlet_alpha)
         
         current_llh = _log_p_data_given_theta_phi_and_pi(n_mut, fprs, adrs, phis, pis, pairwise_occurances, d_rng_i)
         if current_llh>best_llh:
@@ -334,7 +328,6 @@ def _perform_gibbs_sampling(pairwise_occurances, n_clust, n_mut, adrs, fprs, pis
         sampled_nclusts.append(n_clust)
 
 
-    print(sampled_llhs)
     if ret_all_iters:
         return best_phis, best_pis, best_nclust, best_llh, sampled_phis[burnin:], sampled_pis[burnin:], sampled_nclusts[burnin:], sampled_llhs[burnin:]
     else:
@@ -361,9 +354,9 @@ def cluster_mutations(data, fpr, adr, est_mut_phis, n_iter, burnin, pi_prior_alp
         adrs = np.ones(n_mut)*adr
     
     #initialize the parameters we're sampling
-    phis = np.copy(est_mut_phis)
-    pis = np.arange(n_mut,dtype=np.int64) #For now, each mutation will start in it's own cluster
-    n_clust = np.copy(n_mut)
+    phis = np.array([np.mean(est_mut_phis)]) # np.copy(est_mut_phis)
+    pis = np.zeros(n_mut,dtype=int)#np.arange(n_mut,dtype=np.int64) #For now, each mutation will start in it's own cluster
+    n_clust = 1#np.copy(n_mut)
 
     # print("Initial values:")
     # print("nClust {}".format(n_clust))
