@@ -38,6 +38,8 @@ def _parse_args():
         help='Allelic dropout rate. If not set then will be estimated from the data.')
     parser.add_argument('--fpr', dest='fpr', type=float, default=None,
         help='False positive rate. If not set then will be estimated from the data.')
+    parser.add_argument('--skip-clustering', dest='skip_clustering', action='store_true',
+        help='Skip the cluster proceedure and create mutation trees.')
     parser.add_argument('--n-cluster-iter', dest='n_clust_iter', type=int, default=100,
         help='Number of Gibbs iterations to perform during mutation clustering. Default: 100.')
     parser.add_argument('--cluster-dir-alpha', dest='clust_dir_alpha', type=float, default=1.0,
@@ -128,7 +130,7 @@ def _get_default_args(args):
     return parallel, tree_chains, seed, d_rng_i, convergence_options
 
 
-def run(data, rerun, d_rng_i, variable_ado, n_clust_iter, clust_dir_alpha, trees_per_chain, burnin, tree_chains, thinned_frac, seed, parallel, convergence_options, perform_dftp, dfpt_nsamples, res, fpr=[], adr=[]):
+def run(data, rerun, d_rng_i, variable_ado, n_clust_iter, clust_dir_alpha, trees_per_chain, burnin, tree_chains, thinned_frac, seed, parallel, convergence_options, perform_dftp, dfpt_nsamples, res, fpr=[], adr=[], skip_clustering=False):
     assert len(data.shape) == 2
 
     ### ESTIMATE THE ERROR RATES ###
@@ -156,7 +158,10 @@ def run(data, rerun, d_rng_i, variable_ado, n_clust_iter, clust_dir_alpha, trees
         mutation_cluster_assignments = res.get("mutation_cluster_assignments")
     else:
         s = time.time()
-        mutation_cluster_assignments = cluster_mutations(data, fpr, adr, n_clust_iter, burnin, clust_dir_alpha, d_rng_i, ret_all_iters=False)
+        if skip_clustering:
+            mutation_cluster_assignments = np.arange(1,data.shape[0]+1)
+        else:
+            mutation_cluster_assignments = cluster_mutations(data, fpr, adr, n_clust_iter, burnin, clust_dir_alpha, d_rng_i, ret_all_iters=False)
         res.add("clustering_time", time.time() - s)
         res.add("mutation_cluster_assignments",mutation_cluster_assignments)
         res.save()
@@ -300,7 +305,8 @@ def main():
         dfpt_nsamples=args.dfpt_nsamples,
         res = res,
         fpr = args.fpr,
-        adr = args.adr
+        adr = args.adr,
+        skip_clustering = args.skip_clustering
         )
         
 

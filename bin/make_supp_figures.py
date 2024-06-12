@@ -30,13 +30,14 @@ def _parse_args():
     return args
 
 def _plot_err_est(fprs,ados,mut_ids,outdir):
-    plt.figure()
+    plt.figure(figsize=(8,8))
     plt.subplot(2,1,1)
     plt.title("Estimated false positive rates")
     plt.plot(fprs)
     plt.xlabel("Muts")
     plt.ylabel("Error frequency")
-    plt.xticks(np.arange(len(fprs)),mut_ids)
+    plt.xticks([])
+    # plt.xticks(np.arange(len(fprs)),mut_ids)
 
     plt.subplot(2,1,2)
     plt.title("Estimated allelic dropout rate")
