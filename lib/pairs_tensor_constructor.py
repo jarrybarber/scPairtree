@@ -88,20 +88,43 @@ def _calc_nonnorm_relationship_posterior(model, pairwise_occurances, fprs, ados,
         print("The scale is inf...")
         print("scale =", scale)
         print("min_f_x =", min_res['x'])
-        print("score =", score[0], np.log(score[0]))
+        print("score =", score[0])
     if np.isinf(np.log(score[0])):
         print("The score is inf...")
+        print("model =", model)
         print("scale =", scale)
         print("min_f_x =", min_res['x'])
-        print("score =", score[0], np.log(score[0]))
+        print("score =", score[0])
         
         print("min fun args:")
         print("x0 =", x0)
         print("model =", model)
-        print("pairwise_occurances =", pairwise_occurances[:,:])
+        # print("pairwise_occurances =", pairwise_occurances[:,:])
         print("fprs =", fprs[0], fprs[1])
         print("ados =", ados[0], ados[1])
         print("d_rng_i =", d_rng_i)
+
+        import matplotlib.pyplot as plt
+        plt.figure()
+        xs = np.linspace(min_res['x'][0]-0.001,min_res['x'][0]+0.001,300)
+        ys = np.linspace(min_res['x'][1]-0.001,min_res['x'][1]+0.001,300)
+        toplt = [[to_min([x,y], model, pairwise_occurances, clust1, clust2, clust_ass, fprs, ados, d_rng_i) for x in xs] for y in ys]
+        gridsearch_min = np.unravel_index(np.argmin(toplt),(300,300))
+
+        points_close_to_scale = np.argwhere(toplt < np.min(toplt)+20)
+
+        plt.pcolormesh(xs,ys,toplt)
+        plt.plot(xs[points_close_to_scale[:,0]], ys[points_close_to_scale[:,1]],'y*')
+        plt.plot(min_res['x'][0],min_res['x'][1],'r*')
+        plt.plot(xs[gridsearch_min[0]], ys[gridsearch_min[1]],'g*')
+        plt.title("min point found at {}".format(min_res['x']))
+        plt.savefig("failed_tomin_fun.png")
+
+        plt.figure()
+        toplt = [[to_integrate(x, y, model, pairwise_occurances, clust1, clust2, clust_ass, fprs, ados, d_rng_i, scale) for x in xs] for y in ys]
+        plt.pcolormesh(xs,ys,toplt)
+        plt.savefig("failed_tointegrate_fun.png")
+        assert False
 
     return post
 

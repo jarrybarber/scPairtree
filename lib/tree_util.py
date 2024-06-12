@@ -181,17 +181,16 @@ def compute_node_relations(adj):
     assert np.all(R[1:,0] == Models.B_A)
     return R
 
-def convert_clust_noderel_to_mut_noderel(clust_noderel, mut_assignments):
-    #Uses mutation assignments to convert a cluster relationship matrix to a mutation relationship matrix
+@njit(cache=True)
+def convert_clust_mat_to_mut_mat(clust_mat, mut_assignments):
+    #Uses mutation assignments to convert a cluster matrix to a mutation  matrix
+    #E.g., if have a cluster ancestry matrix, this will convert it to a mutation ancestry matrix.
+    #Tested on ancestry matrices, adjacency matrices and node relationship matrices.
     assert np.all(mut_assignments>0)
     n_mut = len(mut_assignments)
-    n_clust = len(clust_noderel)
     mut_assignments = np.append([0], mut_assignments)
-    mut_noderel = np.zeros((n_mut+1,n_mut+1),dtype=int)
-    for par in range(n_clust):
-        for chld in range(n_clust):
-            mut_in_par = np.flatnonzero(mut_assignments==par)
-            mut_in_chld = np.flatnonzero(mut_assignments==chld)
-            x_ind, y_ind = np.meshgrid(mut_in_par, mut_in_chld, indexing="ij")
-            mut_noderel[x_ind, y_ind] = clust_noderel[par, chld]
-    return mut_noderel
+    mut_mat = np.zeros((n_mut+1,n_mut+1),dtype=np.int8)
+    for par in range(n_mut+1):
+        for chld in range(n_mut+1):
+            mut_mat[par,chld] = clust_mat[mut_assignments[par], mut_assignments[chld]]
+    return mut_mat
