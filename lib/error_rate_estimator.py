@@ -90,7 +90,7 @@ def estimate_error_rates(data, d_rng_i=DataRangeIdx.ref_var_nodata, variable_ado
 
     if variable_ado:
         to_min = lambda x: _calc_to_min_val(np.array([x[0]]*n_mut),x[1:n_mut+1],x[n_mut+1:],pairwise_occurances,d_rng_i)
-        bounds=[(0.000001,0.1)] + [(0.001,0.9)]*n_mut + [(0.0,1.0)]*n_mut
+        bounds=[(0.000001,0.1)] + [(0.001,0.8)]*n_mut + [(0.0,1.0)]*n_mut
         beta0s  = np.random.beta(30,200,n_mut)
     else:
         to_min = lambda x: _calc_to_min_val(np.array([x[0]]*n_mut), np.array([x[1]]*n_mut), x[2:], pairwise_occurances,d_rng_i)
