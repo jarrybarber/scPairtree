@@ -202,5 +202,5 @@ def construct_pairs_tensor(data, fpr, ado, d_rng_i, clst_ass=None, parallel=None
                 k+=1
     pool.terminate()
     tensor = _complete_tensor(tensor)
-    # tensor = _normalize_pairs_tensor(tensor, ignore_coclust=ignore_coclust, ignore_garbage=ignore_garbage)
+    tensor = _normalize_pairs_tensor(tensor, ignore_coclust=ignore_coclust, ignore_garbage=ignore_garbage)
     return tensor

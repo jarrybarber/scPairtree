@@ -41,7 +41,7 @@ def _parse_args():
     parser.add_argument('--n-cluster-iter', dest='n_clust_iter', type=int, default=100,
         help='Number of Gibbs iterations to perform during mutation clustering. Default: 100.')
     parser.add_argument('--cluster-dir-alpha', dest='clust_dir_alpha', type=float, default=1.0,
-        help='Alpha paramater used in clustering for the cluster prior. Default: 1.')
+        help='Alpha paramater used in clustering for the cluster prior. Default:-2.')
     parser.add_argument('--variable-ado', dest='variable_ado', action='store_true',
         help='When estimating error rates, treat ADO as mutation specific. Else, ADO is treated as a global parameter for the entire dataset.')
     parser.add_argument('--parallel', dest='parallel', type=int, default=None,

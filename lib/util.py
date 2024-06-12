@@ -24,7 +24,7 @@ RUNS_DIR = os.path.join(BASE_DIR,"runs")
 
 #I will be calcuating these values a lot, and it will be faster to store their values in a list
 _MAX_NCELLS = 100000
-LOG_FACTORIALS = np.zeros(_MAX_NCELLS, dtype=np.float)
+LOG_FACTORIALS = np.zeros(_MAX_NCELLS, dtype=float)
 for j in range(2,_MAX_NCELLS):
     LOG_FACTORIALS[j] = np.log(j) + LOG_FACTORIALS[j-1]
 
