@@ -98,8 +98,9 @@ def estimate_error_rates(data, d_rng_i=DataRangeIdx.ref_var_nodata, variable_ado
         beta0s  = np.random.beta(30,200,1) 
 
     alpha0s = np.random.beta(11,1000,1)
-    phi0s   = np.random.beta(np.sum(data==1,axis=1)+_EPSILON,np.sum(data==0,axis=1)+_EPSILON)
+    phi0s   = np.random.beta(np.sum(data==1,axis=1)+np.sum(data==2,axis=1)+_EPSILON, np.sum(data==0,axis=1)+_EPSILON)
     x0 = np.hstack([alpha0s,beta0s,phi0s])
+    print(x0)
 
     res = minimize(to_min,
                 x0=x0,
@@ -107,6 +108,8 @@ def estimate_error_rates(data, d_rng_i=DataRangeIdx.ref_var_nodata, variable_ado
                 bounds=bounds,
                 options={"disp":True, "maxiter": 1000*len(x0), 'xtol': 1e-6, 'ftol':1e-6},
                 )
+    print(" ")
+    print(res)
     est_errs = res.x
     est_FPRs = np.array([est_errs[0]]*n_mut)
     if variable_ado:

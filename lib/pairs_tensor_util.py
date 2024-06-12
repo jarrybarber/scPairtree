@@ -21,18 +21,12 @@ def p_phi_given_model(model, phi_a, phi_b): #P(phi|M)
     
     if model == Models.A_B:
         if phi_a > phi_b:
-            if phi_a + phi_b <= 1:
-                return 3.0
-            else:
-                return 1.0
+            return 2.0
         else:
             return 0.0
     elif model == Models.B_A:
         if phi_a < phi_b:
-            if phi_a + phi_b <= 1:
-                return 3.0
-            else:
-                return 1.0
+            return 2.0
         else:
             return 0.0
     elif model == Models.diff_branches:
@@ -47,37 +41,6 @@ def p_phi_given_model(model, phi_a, phi_b): #P(phi|M)
             return 1/np.sqrt(2)
         else:
             return 0.0
-    elif model == Models.garbage:
-        return 1.0
-    elif model == Models.cocluster:
-        if (np.abs(phi_a-phi_b) < ISCLOSE_TOLERANCE):
-            return 1/np.sqrt(2)
-        else:
-            return 0.0
-    
-
-    # if model == Models.A_B:
-    #     if phi_a >= phi_b:
-    #         return 2.0
-    #     else:
-    #         return 0.0
-    # elif model == Models.B_A:
-    #     if phi_a <= phi_b:
-    #         return 2.0
-    #     else:
-    #         return 0.0
-    # elif model == Models.diff_branches:
-    #     if phi_a + phi_b <= 1:
-    #         return 2.0
-    #     else:
-    #         return 0.0
-    # elif model == Models.cocluster:
-    #     if np.abs(phi_a-phi_b) < ISCLOSE_TOLERANCE:
-    #         return 1.0
-    #     else:
-    #         return 0.0
-    # elif model == Models.garbage:
-    #     return 1.0
     
     return 0.0 #necessary for numba to not get confused
 
