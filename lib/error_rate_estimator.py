@@ -44,9 +44,9 @@ from numba import njit
 #     return -(non_garb_score)
 
 @njit()
-def _calc_to_min_val(alphas,betas,phis,pairwise_occurances,d_rng_i):
-    n_mut = len(alphas)
-    assert n_mut==len(betas)
+def _calc_to_min_val(fprs,adrs,phis,pairwise_occurances,d_rng_i):
+    n_mut = len(fprs)
+    assert n_mut==len(adrs)
     assert n_mut==len(phis)
     scores = np.zeros((3,n_mut,n_mut))
     for i in range(n_mut):
@@ -59,9 +59,22 @@ def _calc_to_min_val(alphas,betas,phis,pairwise_occurances,d_rng_i):
             else:
                 AB_score = np.log(p_model_given_phi(Models.A_B,phis[i],phis[j])) \
                          - np.log(p_phi_given_model(Models.A_B,phis[i],phis[j])) \
-                         + _log_p_data_given_model_phis_and_errors(Models.A_B,pairwise_occurances[:,:,i,j],alphas[i],alphas[j],betas[i],betas[j],phis[i],phis[j],d_rng_i)
+                         + _log_p_data_given_model_phis_and_errors(Models.A_B,pairwise_occurances[:,:,i,j],fprs[i],fprs[j],adrs[i],adrs[j],phis[i],phis[j],d_rng_i)
             scores[0,i,j] = AB_score
             scores[1,j,i] = AB_score
+
+            # if np.isnan(AB_score):
+            #     print("AB_score is nan")
+            #     print("i,j", i, j)
+            #     print("fprs", fprs[i], fprs[j])
+            #     print("adrs", adrs[i], adrs[j])
+            #     print("phis", phis[i], phis[j])
+            #     for a in [0,1,2,3]:
+            #         for b in [0,1,2,3]:
+            #             print("pairwise_occurances[", a, ",", b, ",i,j]", pairwise_occurances[a,b,i,j])
+            #     print(p_model_given_phi(Models.A_B,phis[i],phis[j]))
+            #     print(p_phi_given_model(Models.A_B,phis[i],phis[j]))
+            #     print(_log_p_data_given_model_phis_and_errors(Models.A_B,pairwise_occurances[:,:,i,j],fprs[i],fprs[j],adrs[i],adrs[j],phis[i],phis[j],d_rng_i))
 
             if j>i:
                 continue
@@ -70,35 +83,39 @@ def _calc_to_min_val(alphas,betas,phis,pairwise_occurances,d_rng_i):
             else:
                 branch_score =  np.log(p_model_given_phi(Models.diff_branches,phis[i],phis[j])) \
                               - np.log(p_phi_given_model(Models.diff_branches,phis[i],phis[j])) \
-                              + _log_p_data_given_model_phis_and_errors(Models.diff_branches,pairwise_occurances[:,:,i,j],alphas[i],alphas[j],betas[i],betas[j],phis[i],phis[j],d_rng_i)
+                              + _log_p_data_given_model_phis_and_errors(Models.diff_branches,pairwise_occurances[:,:,i,j],fprs[i],fprs[j],adrs[i],adrs[j],phis[i],phis[j],d_rng_i)
             scores[2,i,j] = branch_score
             scores[2,j,i] = branch_score
+
 
     non_garb_scores = np.zeros((n_mut,n_mut))
     for i in range(n_mut):
         for j in range(n_mut):
-            non_garb_scores[i,j] = np.max(scores[:,i,j])
+            non_garb_scores[i,j] = np.nanmax(scores[:,i,j])
     non_garb_score = np.sum(non_garb_scores)
 
     return -(non_garb_score)
 
 
-def estimate_error_rates(data, d_rng_i=DataRangeIdx.ref_var_nodata, variable_ado=True):
+def estimate_error_rates(data, d_rng_i=DataRangeIdx.ref_var_nodata, variable_adr=True):
 
     pairwise_occurances, _ = determine_all_mutation_pair_occurance_counts(data, d_rng_i)
     n_mut = data.shape[0]
 
-    if variable_ado:
+    if variable_adr:
         to_min = lambda x: _calc_to_min_val(np.array([x[0]]*n_mut),x[1:n_mut+1],x[n_mut+1:],pairwise_occurances,d_rng_i)
-        bounds=[(0.000001,0.1)] + [(0.001,0.8)]*n_mut + [(0.0,1.0)]*n_mut
-        beta0s  = np.random.beta(30,200,n_mut)
+        bounds=[(0.000001,0.1)] + [(0.0001,0.9999)]*n_mut + [(0.0,1.0)]*n_mut
+        beta0s  = np.random.beta(4,100,n_mut)
     else:
         to_min = lambda x: _calc_to_min_val(np.array([x[0]]*n_mut), np.array([x[1]]*n_mut), x[2:], pairwise_occurances,d_rng_i)
-        bounds=[(0.000001,0.1)] + [(0.001,0.8)] + [(0.0,1.0)]*n_mut
-        beta0s  = np.random.beta(30,200,1) 
+        bounds=[(0.000001,0.1)] + [(0.0001,0.9999)] + [(0.0,1.0)]*n_mut
+        beta0s  = np.random.beta(4,100,1) 
 
     alpha0s = np.random.beta(11,1000,1)
     phi0s   = np.random.beta(np.sum(data==1,axis=1)+np.sum(data==2,axis=1)+_EPSILON, np.sum(data==0,axis=1)+_EPSILON)
+    phi0s[phi0s==1] = phi0s[phi0s==1] - 0.1*np.random.rand(len(phi0s[phi0s==1]))
+    phi0s[phi0s==0] = phi0s[phi0s==0] + 0.1*np.random.rand(len(phi0s[phi0s==0]))
+    # phi0s   = np.random.beta(2,2,n_mut)
     x0 = np.hstack([alpha0s,beta0s,phi0s])
 
     res = minimize(to_min,
@@ -110,7 +127,7 @@ def estimate_error_rates(data, d_rng_i=DataRangeIdx.ref_var_nodata, variable_ado
 
     est_errs = res.x
     est_FPRs = np.array([est_errs[0]]*n_mut)
-    if variable_ado:
+    if variable_adr:
         est_FNRs = est_errs[1:n_mut+1]
         est_phis = est_errs[n_mut+1:]
     else:
