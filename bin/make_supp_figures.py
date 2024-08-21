@@ -23,7 +23,9 @@ def _parse_args():
     parser.add_argument('--act-tree-anc-fn', dest='act_tree_anc_fn',default=None,
         help='(Optional) File containing the ancestry matrix of the actual tree, if this tree is known.')
     parser.add_argument('--act-mut-clust-fn', dest='act_mut_clust_fn',default=None,
-        help='(Optional) File containing a list of actual mutation clusterings. List should be of length n_mut and each element reports which cluster a mutation belongs to.')
+        help='(Optional) File containing a list of true mutation clusterings. List should be of length n_mut and each element reports which cluster a mutation belongs to.')
+    parser.add_argument('--act-cell-clust-fn', dest='act_cell_clust_fn',default=None,
+        help='(Optional) File containing a list of true cell clusterings. List should be of length n_cell and each element reports which cluster a cell belongs to.')
     
     parser.add_argument('results_fn')
     args = parser.parse_args()
@@ -69,6 +71,50 @@ def _plot_chain_llhs(llhs,n_chains,outdir,act_tree_llh):
         plt.title("Chain {}".format(str(i)))
     
     plt.savefig(os.path.join(outdir,"chain_llhs.png"))
+    return
+
+
+def _plot_clustering_results(act_mut_clust_ass, est_mut_clust_ass, data, act_cell_clust_ass, outdir):
+    n_mut = len(act_mut_clust_ass)
+    sort_inds = np.argsort(act_mut_clust_ass)
+    act_mut_clust_ass = act_mut_clust_ass[sort_inds]
+    est_mut_clust_ass = est_mut_clust_ass[sort_inds]
+    act_is_coclust = np.zeros((n_mut,n_mut))
+    est_is_coclust = np.zeros((n_mut,n_mut))
+    for i in range(n_mut):
+        for j in range(n_mut):
+            if act_mut_clust_ass[i] == act_mut_clust_ass[j]:
+                act_is_coclust[i,j] = 1
+            if est_mut_clust_ass[i] == est_mut_clust_ass[j]:
+                est_is_coclust[i,j] = 1
+
+    plt.figure(figsize=(10,15))
+    plt.subplot(3,2,1)
+    plt.pcolormesh(act_is_coclust)
+    plt.title("actual")
+    plt.subplot(3,2,3)
+    plt.pcolormesh(est_is_coclust)
+    plt.title("estimated")
+    plt.subplot(3,2,5)
+    plt.pcolormesh(act_is_coclust - est_is_coclust)
+    plt.title("actual - estimated")
+    
+    toplt = data[sort_inds,:]
+    if act_cell_clust_ass is not None:
+        cell_sort_inds = np.argsort(act_cell_clust_ass)
+        toplt = toplt[:,cell_sort_inds]
+
+    plt.subplot(3,2,2)
+    plt.title("data")
+    plt.pcolormesh(toplt)
+    plt.subplot(3,2,4)
+    plt.pcolormesh(toplt)
+    plt.subplot(3,2,6)
+    plt.pcolormesh(toplt)
+    plt.tight_layout()
+    plt.savefig(os.path.join(outdir,"clustering.png"))
+    
+
     return
 
 
@@ -122,12 +168,18 @@ def main():
     else:
         act_tree_llh = None
     
+    if args.act_cell_clust_fn is not None:
+        act_cell_clust_ass = np.loadtxt(args.act_cell_clust_fn, dtype=int)
+    else:
+        act_cell_clust_ass = None
+
+
     #Set cluster names to be based on the names of the muts they're made of
     n_clusters = np.max(est_mut_clust_ass)
     clust_names = []
     for C in range(1,n_clusters+1):
         muts_in_clust = mut_ids[np.nonzero(est_mut_clust_ass==C)]
-        clust_names.append( "\n".join([str(int(i)) for i in muts_in_clust]) )
+        clust_names.append( "\n".join([str(int(i)) for i in np.sort(muts_in_clust)]) )
     
 
     plot_best_model(pairs_tensor, outdir=args.outdir, save_name="pairs_matrix.png")
@@ -135,6 +187,7 @@ def main():
     _plot_chain_llhs(llhs,scp_args['tree_chains'],args.outdir,act_tree_llh)
     fig = plot_tree(best_tree_adj, clust_names)
     fig.savefig(os.path.join(args.outdir,"Highest llh tree"))
+    _plot_clustering_results(act_mut_clust_ass, est_mut_clust_ass, data, act_cell_clust_ass, args.outdir)
 
     return
 
