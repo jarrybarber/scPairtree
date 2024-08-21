@@ -40,12 +40,12 @@ def _parse_args():
         help='False positive rate. If not set then will be estimated from the data.')
     parser.add_argument('--skip-clustering', dest='skip_clustering', action='store_true',
         help='Skip the cluster proceedure and create mutation trees.')
-    parser.add_argument('--n-cluster-iter', dest='n_clust_iter', type=int, default=100,
-        help='Number of Gibbs iterations to perform during mutation clustering. Default: 100.')
-    parser.add_argument('--cluster-dir-alpha', dest='clust_dir_alpha', type=float, default=1.0,
-        help='Alpha paramater used in clustering for the cluster prior. Default:-2.')
-    parser.add_argument('--variable-ado', dest='variable_ado', action='store_true',
-        help='When estimating error rates, treat ADO as mutation specific. Else, ADO is treated as a global parameter for the entire dataset.')
+    parser.add_argument('--n-cluster-iter', dest='n_clust_iter', type=int, default=20,
+        help='Number of Gibbs iterations to perform during mutation clustering. Default: 20.')
+    parser.add_argument('--cluster-dir-alpha', dest='clust_dir_alpha', type=float, default=-0.0005,
+        help='Alpha paramater used in clustering for the cluster prior. Default:-0.0005 (fairly conservative)')
+    parser.add_argument('--variable-adr', dest='variable_adr', action='store_true',
+        help='When estimating error rates, treat ADR as mutation specific. Else, ADR is treated as a global parameter for the entire dataset.')
     parser.add_argument('--parallel', dest='parallel', type=int, default=None,
         help='Number of tasks to run in parallel. By default, this is set to the number of CPU cores on the system. On hyperthreaded systems, this will be twice the number of physical CPUs.')
 #   parser.add_argument('--params', dest='params_fn',
@@ -57,7 +57,7 @@ def _parse_args():
     parser.add_argument('--burnin', dest='burnin', type=float, default=(1/3),
         help='Proportion of samples to discard from beginning of each chain.')
     parser.add_argument('--thinned-frac', dest='thinned_frac', type=float, default=1,
-        help='Proportion of non-burnin trees to write as output.')
+        help='Proportion of post-burnin trees to write as output.')
     parser.add_argument('--convergence-threshold', dest='conv_thresh', type=float, default=None,
         help='(Optional) Cutoff value at which convergence will be declared and tree sampling will be terminated.')
     parser.add_argument('--convergence-min-nsamples', dest='conv_min_samp', type=float, default=None,
@@ -68,12 +68,12 @@ def _parse_args():
         help='(Optional) Perform direct-from-pairs-tensor sampling. These can be used with importance sampling to estimate a consensus graph or other parameters.')
     parser.add_argument('--dfpt-nsamples', dest='dfpt_nsamples',  type=int, default=100000,
         help='(Optional) The number of samples to take when doing dfpt sampling.')
-    parser.add_argument('--only-build-tensor', dest='only_build_tensor', action='store_true',
-        help='Exit after building pairwise relations tensor, without sampling any trees.')
-    parser.add_argument('--disable-posterior-sort', dest='sort_by_llh', action='store_false',
-        help='Disable sorting posterior tree samples by descending probability, and instead list them in the order they were sampled')
+    # parser.add_argument('--only-build-tensor', dest='only_build_tensor', action='store_true',
+    #     help='Exit after building pairwise relations tensor, without sampling any trees.')
+    # parser.add_argument('--disable-posterior-sort', dest='sort_by_llh', action='store_false',
+    #     help='Disable sorting posterior tree samples by descending probability, and instead list them in the order they were sampled')
     parser.add_argument('--mut-id-fn', dest='mut_id_fn', type=str, default=None,
-        help='Disable sorting posterior tree samples by descending probability, and instead list them in the order they were sampled')
+        help='Name of file containing identifiers for each mutation.')
     
     for K in hyperparams.defaults.keys():
         parser.add_argument('--%s' % K, type=float, default=hyperparams.defaults[K], help=hyperparams.explanations[K])
@@ -130,13 +130,14 @@ def _get_default_args(args):
     return parallel, tree_chains, seed, d_rng_i, convergence_options
 
 
-def run(data, rerun, d_rng_i, variable_ado, n_clust_iter, clust_dir_alpha, trees_per_chain, burnin, tree_chains, thinned_frac, seed, parallel, convergence_options, perform_dftp, dfpt_nsamples, res, fpr=[], adr=[], skip_clustering=False):
+def run(data, d_rng_i, variable_adr, n_clust_iter, clust_dir_alpha, trees_per_chain, burnin, tree_chains, thinned_frac, seed, parallel, convergence_options, perform_dftp, dfpt_nsamples, res, fpr=[], adr=[], skip_clustering=False):
     assert len(data.shape) == 2
 
     ### ESTIMATE THE ERROR RATES ###
-    if res.has("est_FPRs") and res.has("est_ADOs") and not rerun:
+    if res.has("est_FPRs") and res.has("est_ADOs"):
         fpr = res.get("est_FPRs")
         adr = res.get("est_ADOs")
+        est_mut_phis = res.get("est_mut_phis")
     elif (fpr is not None) and (adr is not None):
         print("Error rates input, no estimation required...")
         if np.isscalar(fpr):
@@ -146,28 +147,30 @@ def run(data, rerun, d_rng_i, variable_ado, n_clust_iter, clust_dir_alpha, trees
     else:
         print("Estimating error rates...")
         s = time.time()
-        err_rates, _ = estimate_error_rates(data, d_rng_i=d_rng_i, variable_ado=variable_ado)
-        fpr, adr, _ = err_rates
+        err_rates, _ = estimate_error_rates(data, d_rng_i=d_rng_i, variable_adr=variable_adr)
+        fpr, adr, est_mut_phis = err_rates
         res.add("est_runtime", time.time()-s)
         res.add("est_FPRs", fpr)
         res.add("est_ADOs", adr)
+        res.add("est_mut_phis", est_mut_phis)
         res.save()
     
     ### CLUSTER MUTATIONS ###
-    if res.has("mutation_cluster_assignments") and not rerun:
+    if res.has("mutation_cluster_assignments"):
         mutation_cluster_assignments = res.get("mutation_cluster_assignments")
     else:
         s = time.time()
         if skip_clustering:
             mutation_cluster_assignments = np.arange(1,data.shape[0]+1)
         else:
-            mutation_cluster_assignments = cluster_mutations(data, fpr, adr, n_clust_iter, burnin, clust_dir_alpha, d_rng_i, ret_all_iters=False)
+            ML_mutation_cluster_assignments, all_mutation_cluster_assignments = cluster_mutations(data, fpr, adr, est_mut_phis, n_clust_iter, burnin=2, pi_prior_alpha_hat=clust_dir_alpha, d_rng_i=d_rng_i, ret_all_iters=True)
+            mutation_cluster_assignments = all_mutation_cluster_assignments[-1]
         res.add("clustering_time", time.time() - s)
         res.add("mutation_cluster_assignments",mutation_cluster_assignments)
         res.save()
 
     ### CONSTRUCT THE PAIRS TENSOR ###
-    if res.has("pairs_tensor") and not rerun:
+    if res.has("pairs_tensor"):
         pairs_tensor = res.get("pairs_tensor")
     else:
         print("Constructing pairs tensor...")
@@ -178,7 +181,7 @@ def run(data, rerun, d_rng_i, variable_ado, n_clust_iter, clust_dir_alpha, trees
         res.save()
 
     ### SAMPLE TREES ###
-    if res.has("adj_mats") and not rerun:
+    if res.has("adj_mats"):
         adjs = res.get("adj_mats")
         llhs = res.get("tree_llhs")
         accept_rates = res.get("accept_rates")
@@ -222,7 +225,7 @@ def run(data, rerun, d_rng_i, variable_ado, n_clust_iter, clust_dir_alpha, trees
 
     ### (OPTIONAL) SAMPLE DIRECTLY FROM THE PAIRS TENSOR ###
     if perform_dftp:
-        if res.has("dfpt_samples") and not rerun:
+        if res.has("dfpt_samples"):
             dfpt_samples = res.get("dfpt_samples")
             dfpt_sample_probs = res.get("dfpt_sample_probs")
         else:
@@ -247,10 +250,12 @@ def main():
     ### PARSE ARGUMENTS ###
     args = _parse_args()
 
+    if args.rerun and os.path.exists(args.results_fn):
+        os.remove(args.results_fn)
 
     ### CREATE OBJECT WHICH CAN SAVE THE RESULTS OF THIS RUN ###
     res = Results(args.results_fn)
-    if res.has("scp_args") and not args.rerun:
+    if res.has("scp_args"):
         print("sc_pairtree already run using this results filename. Overriding current arguments with previous arguments to avoid overwriting previous results.")
         d = vars(args)
         old_args = res.get("scp_args")
@@ -273,13 +278,13 @@ def main():
 
     
     ### LOAD IN THE DATA ###
-    if res.has("data") and not args.rerun:
+    if res.has("data"):
         data = res.get("data")
     else:
         data = load_data(args.data_fn)
         res.add("data",data)
         res.save()
-    if not res.has("mut_ids") or args.rerun:
+    if not res.has("mut_ids"):
         if args.mut_id_fn is not None:
             mut_ids = np.loadtxt(args.mut_id_fn)
         else:
@@ -289,9 +294,8 @@ def main():
 
     ### RUN SCPAIRTREE ###
     run(data,
-        rerun = args.rerun,
         d_rng_i = args.d_rng_i,
-        variable_ado = args.variable_ado, 
+        variable_adr = args.variable_adr, 
         n_clust_iter = args.n_clust_iter,
         clust_dir_alpha = args.clust_dir_alpha,
         trees_per_chain = args.trees_per_chain, 
