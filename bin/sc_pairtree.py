@@ -175,7 +175,7 @@ def run(data, d_rng_i, variable_adr, n_clust_iter, clust_dir_alpha, trees_per_ch
     else:
         print("Constructing pairs tensor...")
         s = time.time()
-        pairs_tensor = construct_pairs_tensor(data, fpr, adr, d_rng_i=d_rng_i, clst_ass=mutation_cluster_assignments-1, scale_integrand=True)
+        pairs_tensor = construct_pairs_tensor(data, fpr, adr, d_rng_i=d_rng_i, clst_ass=mutation_cluster_assignments-1)
         res.add("pairs_tensor_runtime", time.time()-s)
         res.add("pairs_tensor", pairs_tensor)
         res.save()

@@ -62,19 +62,19 @@ def _get_model_params(model, d_rng_i):
     return to_integrate, to_min, x0s, L, U
 
 
-def _calc_nonnorm_relationship_posterior(model, pairwise_occurances, fprs, ados, clust_ass, clust1, clust2, inc_cocluster, scale_integrand, quad_tol, d_rng_i):
+def _calc_nonnorm_relationship_posterior(model, pairwise_occurances, fprs, ados, clust_ass, clust1, clust2, inc_cocluster, quad_tol, d_rng_i):
     scale = 0
     to_integrate, to_min, x0s, L, U = _get_model_params(model, d_rng_i)
-    if scale_integrand:
-        #In order to avoid underflow issues during integration, determine the maximum of the integrand and scale it by that.
-        #In order for this to work, I converted the integrands to work in log space and return the non-logged, scaled score.
-        #Thus, once integration is complete, log the score and add the scale back onto the log(score) to remove its influence.
-        
-        #I found minimization to be slow and attempt to optimize it resulted in very wrong answers. Simply doing a grid search in
-        #the allowable range and using that min to the function results in great runtime savings.
-        x0 = x0s[np.argmin([to_min(x, model, pairwise_occurances, clust1, clust2, clust_ass, fprs, ados, d_rng_i) for x in x0s])]
-        min_res = minimize(to_min, x0, method="Nelder-Mead", bounds=((0,1),(0,1)), args = (model, pairwise_occurances, clust1, clust2, clust_ass, fprs, ados, d_rng_i))
-        scale = -min_res['fun']
+    
+    #In order to avoid underflow issues during integration, determine the maximum of the integrand and scale it by that.
+    #In order for this to work, I converted the integrands to work in log space and return the non-logged, scaled score.
+    #Thus, once integration is complete, log the score and add the scale back onto the log(score) to remove its influence.
+    
+    #I found minimization to be slow and attempt to optimize it resulted in very wrong answers. Simply doing a grid search in
+    #the allowable range and passing that min to the function results in great runtime savings.
+    x0 = x0s[np.argmin([to_min(x, model, pairwise_occurances, clust1, clust2, clust_ass, fprs, ados, d_rng_i) for x in x0s])]
+    min_res = minimize(to_min, x0, method="Nelder-Mead", bounds=((0,1),(0,1)), args = (model, pairwise_occurances, clust1, clust2, clust_ass, fprs, ados, d_rng_i))
+    scale = -min_res['fun']
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -83,48 +83,6 @@ def _calc_nonnorm_relationship_posterior(model, pairwise_occurances, fprs, ados,
         else:
             score = dblquad(to_integrate, 0, 1, L, U, args=(model, pairwise_occurances, clust1, clust2, clust_ass, fprs, ados, d_rng_i, scale),epsabs=0,epsrel=quad_tol)
     post = np.log(p_model(model, inc_cocluster)) + np.log(score[0]) + scale
-
-    if np.isinf(scale):
-        print("The scale is inf...")
-        print("scale =", scale)
-        print("min_f_x =", min_res['x'])
-        print("score =", score[0])
-    if np.isinf(np.log(score[0])):
-        print("The score is inf...")
-        print("model =", model)
-        print("scale =", scale)
-        print("min_f_x =", min_res['x'])
-        print("score =", score[0])
-        
-        print("min fun args:")
-        print("x0 =", x0)
-        print("model =", model)
-        # print("pairwise_occurances =", pairwise_occurances[:,:])
-        print("fprs =", fprs[0], fprs[1])
-        print("ados =", ados[0], ados[1])
-        print("d_rng_i =", d_rng_i)
-
-        import matplotlib.pyplot as plt
-        plt.figure()
-        xs = np.linspace(min_res['x'][0]-0.001,min_res['x'][0]+0.001,300)
-        ys = np.linspace(min_res['x'][1]-0.001,min_res['x'][1]+0.001,300)
-        toplt = [[to_min([x,y], model, pairwise_occurances, clust1, clust2, clust_ass, fprs, ados, d_rng_i) for x in xs] for y in ys]
-        gridsearch_min = np.unravel_index(np.argmin(toplt),(300,300))
-
-        points_close_to_scale = np.argwhere(toplt < np.min(toplt)+20)
-
-        plt.pcolormesh(xs,ys,toplt)
-        plt.plot(xs[points_close_to_scale[:,0]], ys[points_close_to_scale[:,1]],'y*')
-        plt.plot(min_res['x'][0],min_res['x'][1],'r*')
-        plt.plot(xs[gridsearch_min[0]], ys[gridsearch_min[1]],'g*')
-        plt.title("min point found at {}".format(min_res['x']))
-        plt.savefig("failed_tomin_fun.png")
-
-        plt.figure()
-        toplt = [[to_integrate(x, y, model, pairwise_occurances, clust1, clust2, clust_ass, fprs, ados, d_rng_i, scale) for x in xs] for y in ys]
-        plt.pcolormesh(xs,ys,toplt)
-        plt.savefig("failed_tointegrate_fun.png")
-        assert False
 
     return post
 
@@ -174,7 +132,7 @@ def _normalize_pairs_tensor(pairs_tensor, ignore_coclust=False, ignore_garbage=T
     return normed
 
 
-def construct_pairs_tensor(data, fpr, ado, d_rng_i, clst_ass=None, parallel=None, quad_tol=1e0, verbose=True, scale_integrand=None, ignore_coclust=True, ignore_garbage=True):
+def construct_pairs_tensor(data, fpr, ado, d_rng_i, clst_ass=None, parallel=None, quad_tol=1e0, verbose=True, ignore_coclust=True, ignore_garbage=True):
     
     #_calc_relationship_posterior currently assumes that fpr and ado will be passed as a vector to allow for individual error rates
     #If using global error rates and so only input scalar, convert to vector
@@ -187,11 +145,6 @@ def construct_pairs_tensor(data, fpr, ado, d_rng_i, clst_ass=None, parallel=None
         ado = np.zeros((nSNVs,)) + ado
     assert len(fpr) == nSNVs
     assert len(ado) == nSNVs
-    
-    if (scale_integrand is None):
-        #If we are working with more than 150 cells then there is a chance that we will experience underflow issues.
-        # -->Scale the integrand during integration.
-        scale_integrand = nCells > 150
 
     mods = []
     for m in Models:
@@ -210,7 +163,7 @@ def construct_pairs_tensor(data, fpr, ado, d_rng_i, clst_ass=None, parallel=None
     
     pool = multiprocessing.Pool(parallel)
     pairwise_occurances, _ = determine_all_mutation_pair_occurance_counts(data, d_rng_i)
-    args = [[model, pairwise_occurances, fpr, ado, clst_ass, clusts[c1], clusts[c2], (not ignore_coclust), scale_integrand, quad_tol, d_rng_i] for model in mods for c1 in range(nClusts-1) for c2 in range(c1+1,nClusts)]
+    args = [[model, pairwise_occurances, fpr, ado, clst_ass, clusts[c1], clusts[c2], (not ignore_coclust), quad_tol, d_rng_i] for model in mods for c1 in range(nClusts-1) for c2 in range(c1+1,nClusts)]
     chunksize = int(np.ceil(nSNVs*nSNVs*len(mods)/2/parallel/8))
     results = pool.starmap(_calc_nonnorm_relationship_posterior,args,chunksize=chunksize)
     pool.close()
