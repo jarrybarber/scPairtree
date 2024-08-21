@@ -1,0 +1,381 @@
+SCP_BINDIR=~/work/sc_pairtree/bin
+SCITE_BINDIR=~/work/phylo_methods/SCITE
+SASC_BINDIR=~/work/phylo_methods/sasc
+HUNTRESS_BINDIR=~/work/phylo_methods/HUNTRESS
+# SICLONEFIT_BINDIR=
+DATADIR=~/work/sc_pairtree/tests/cellcoal/data
+RESDIR=~/work/sc_pairtree/tests/cellcoal/results
+
+
+run_scp_nojob() {
+  d_rng_id=2
+  n_mcmc_rep=8
+  thin_frac=0.25
+  burnin=0.75
+  n_clust_iter=20
+
+  datadir=$DATADIR/$dset_name/scp_input
+  resdir=$RESDIR/$dset_name/sc_pairtree
+
+  data_fn=$datadir/$fn/rep$rep/$data_filename
+  mut_id_fn=$datadir/$fn/rep$rep/snv_loc
+
+
+  out_fn=$resdir/${fn}/rep$rep
+  if [ "$run_isv_data" = true ]; then
+    out_fn=$out_fn/isv_data
+  elif [ "$run_dblt_data" = true ]; then
+    out_fn=$out_fn/dblt_data
+  fi
+
+  mkdir -p $out_fn
+  
+  tpc=`expr $n_mut \* 1000`
+  if [ "$sample_fewer_trees" = true ]; then
+    tpc=`expr $n_mut \* 100`
+  fi
+
+  python $SCP_BINDIR/sc_pairtree.py $data_fn \
+                                          $out_fn/results_temp \
+                                          --seed $seed \
+                                          --data-range $d_rng_id \
+                                          --parallel $n_mcmc_rep \
+                                          --trees-per-chain $tpc \
+                                          --burnin $burnin \
+                                          --thinned-frac $thin_frac \
+                                          --mut-id-fn $mut_id_fn \
+                                          --n-cluster-iter $n_clust_iter \
+                                          --rerun \
+                                          --skip-clustering \
+                                          --variable-adr
+}
+
+run_scp () {
+
+  d_rng_id=2
+  n_mcmc_rep=8
+  thin_frac=0.25
+  burnin=0.75
+  n_clust_iter=20
+
+  datadir=$DATADIR/$dset_name/scp_input
+  resdir=$RESDIR/$dset_name/sc_pairtree
+
+  data_fn=$datadir/$fn/rep$rep/$data_filename
+  mut_id_fn=$datadir/$fn/rep$rep/snv_loc
+
+
+  out_fn=$resdir/${fn}/rep$rep
+  if [ "$run_isv_data" = true ]; then
+    out_fn=$out_fn/isv_data
+  elif [ "$run_dblt_data" = true ]; then
+    out_fn=$out_fn/dblt_data
+  fi
+
+  mkdir -p $out_fn
+  
+  tpc=`expr $n_mut \* 1000`
+  if [ "$sample_fewer_trees" = true ]; then
+    tpc=`expr $n_mut \* 100`
+  fi
+
+  if [ "$variable_adr" = true ]; then
+    bsub -n10 -R rusage[mem=8] -W 72:00 -oo $out_fn/log \
+      \time -o $out_fn/time -f "Runtime: %E\n" \
+        python $SCP_BINDIR/sc_pairtree.py $data_fn \
+                                          $out_fn/results \
+                                          --seed $seed \
+                                          --data-range $d_rng_id \
+                                          --parallel $n_mcmc_rep \
+                                          --trees-per-chain $tpc \
+                                          --burnin $burnin \
+                                          --thinned-frac $thin_frac \
+                                          --mut-id-fn $mut_id_fn \
+                                          --n-cluster-iter $n_clust_iter \
+                                          --rerun \
+                                          --skip-clustering \
+                                          --variable-adr
+  else
+    bsub -n10 -R rusage[mem=8] -W 72:00 -oo $out_fn/log \
+      \time -o $out_fn/time -f "Runtime: %E\n" \
+        python $SCP_BINDIR/sc_pairtree.py $data_fn \
+                                          $out_fn/results \
+                                          --seed $seed \
+                                          --data-range $d_rng_id \
+                                          --parallel $n_mcmc_rep \
+                                          --trees-per-chain $tpc \
+                                          --burnin $burnin \
+                                          --thinned-frac $thin_frac \
+                                          --mut-id-fn $mut_id_fn \
+                                          --n-cluster-iter $n_clust_iter \
+                                          --rerun \
+                                          --skip-clustering
+  fi
+
+}
+
+make_scp_supp_figs () {
+  datadir=$DATADIR/$dset_name/scp_input
+  resdir=$RESDIR/$dset_name/sc_pairtree
+  out_fn=$resdir/${fn}/rep$rep
+  if [ "$run_isv_data" = true ]; then
+    out_fn=$out_fn/isv_data
+  elif [ "$run_dblt_data" = true ]; then
+    out_fn=$out_fn/dblt_data
+  fi
+  mkdir -p $out_fn
+
+  act_mut_anc_fn=$datadir/$fn/rep$rep/true_clust_anc_mat
+  act_mut_clust_fn=$datadir/$fn/rep$rep/true_mut_clst_ass
+  act_cell_clust_fn=$datadir/$fn/rep$rep/true_cell_clst_ass
+
+  python $SCP_BINDIR/make_supp_figures.py $out_fn/results \
+                                        --outdir $out_fn/figs \
+                                        --seed $seed \
+                                        --act-tree-anc-fn $act_mut_anc_fn \
+                                        --act-mut-clust-fn $act_mut_clust_fn \
+                                        --act-cell-clust-fn $act_cell_clust_fn
+}
+
+run_scite () {
+  n_scite_rep=8
+  
+  datadir=$DATADIR/$dset_name/scp_input
+  resdir=$RESDIR/$dset_name/scite
+
+  input_dir=$datadir/$fn/rep$rep
+  output_dir=$resdir/$fn/rep$rep
+  if [ "$run_isv_data" = true ]; then
+    output_dir=$output_dir/isv_data
+  elif [ "$run_dblt_data" = true ]; then
+    output_dir=$output_dir/dblt_data
+  fi
+  mkdir -p $output_dir
+
+  data_fn=$input_dir/$data_filename
+  results_fn=$output_dir/results
+  log_fn=$output_dir/log
+  time_fn=$output_dir/time
+  # n_samp=`expr 100 \* $n_mut`
+  n_samp=`expr $n_mut \* 100`
+  tpc=`expr $n_mut \* 5000`
+  if [ "$sample_fewer_trees" = true ]; then
+    tpc=`expr $n_mut \* 500`
+  fi
+  cc_param=$(echo "2*$my_ADR*(1-$my_ADR)*$FPR"|bc -l)
+
+  bsub -n10 -R rusage[mem=8] -W 72:00 -oo $log_fn \
+    \time -o $time_fn -f "Runtime: %E\n" ${SCITE_BINDIR}/scite -i $data_fn \
+                                                         -o $results_fn \
+                                                         -n $n_mut \
+                                                         -m $n_cell \
+                                                         -r $n_scite_rep \
+                                                         -l $tpc \
+                                                         -fd $fpr \
+                                                         -ad $fnr $fnr \
+                                                         -cc $cc_param\
+                                                         -p $n_samp \
+                                                         -s \
+                                                         -g 1 \
+                                                         -seed $seed \
+                                                         -e 0.1
+
+}
+
+run_sasc () {
+  n_sasc_rep=8
+  starting_temp=10000
+  cooling_rate=0.002
+  FP_est_std=0.0001
+  FN_est_std=0.1
+
+  datadir=$DATADIR/$dset_name/sasc_input
+  resdir=$RESDIR/$dset_name/sasc
+
+  data_fn=$datadir/$fn/rep$rep/$data_filename
+  mut_id_fn=$datadir/$fn/rep$rep/snv_loc
+  out_fn=$resdir/$fn/rep$rep
+  if [ "$run_isv_data" = true ]; then
+    out_fn=$out_fn/isv_data
+  elif [ "$run_dblt_data" = true ]; then
+    out_fn=$out_fn/dblt_data
+  fi
+  mkdir -p $out_fn
+
+  bsub -n10 -R rusage[mem=8] -W 72:00 -oo $out_fn/log \time -o $out_fn/time -f "Runtime: %E\n" \
+              ${SASC_BINDIR}/sasc \
+              -i $data_fn \
+              -e $mut_id_fn \
+              -n $n_cell \
+              -m $n_mut \
+              -k 0 \
+              -a $fnr \
+              -b $fpr \
+              -d 0 \
+              -r $n_sasc_rep \
+              -p $n_sasc_rep \
+              -S $starting_temp \
+              -C $cooling_rate \
+              -B $FP_est_std \
+              -A $FN_est_std
+}
+
+
+run_huntress () {
+  datadir=$DATADIR/$dset_name/huntress_input
+  resdir=$RESDIR/$dset_name/huntress
+
+  input_dir=$datadir/$fn/rep$rep
+  output_dir=$resdir/$fn/rep$rep
+  if [ "$run_isv_data" = true ]; then
+    output_dir=$output_dir/isv_data
+  elif [ "$run_dblt_data" = true ]; then
+    output_dir=$output_dir/dblt_data
+  fi
+  mkdir -p $output_dir
+
+  data_fn=$input_dir/$data_filename
+  log_fn=$output_dir/log
+  time_fn=$output_dir/time
+  res_fn=$output_dir/res
+
+  bsub -n10 -R rusage[mem=8] -W 72:00 -oo $log_fn \
+    \time -o $time_fn -f "Runtime: %E\n" python $HUNTRESS_BINDIR/HUNTRESS.py --i $data_fn \
+                                                                    --o $res_fn \
+                                                                    --algorithmchoice FPNA \
+                                                                    --fn_coeff $fnr
+}
+
+function run_all_sims {
+  data_filename="data"
+
+  #test dataset
+  # dset_name=test
+  # n_data_rep=5
+  # for n_mut in 10 25 50; do
+  # for n_cell in 50 250 1000; do 
+  # for FPR in 0.0001 0.01; do
+  # for ADR in 0.25 0.5 0.75; do
+  # for rep in $(seq 1 $n_data_rep); do
+  #testing using my original data simulator
+  # dset_name=my_sim_dat_test
+  # n_data_rep=10
+  # for n_mut in 50 100 ; do
+  # for n_cell in 100 500; do 
+  # for FPR in 0.0001 0.01; do
+  # for ADR in 0.1 0.5; do
+  # for rep in $(seq 1 $n_data_rep); do
+  #Sim 1a: different dataset sizes - normalish range
+  # dset_name=s1
+  # n_data_rep=10
+  # for n_mut in 50 100 200; do
+  # for n_cell in 50 200 1000; do 
+  # for FPR in 0.0001; do
+  # for ADR in 0.5; do
+  # for rep in $(seq 1 $n_data_rep); do
+  # for n_mut in 100; do
+  # for n_cell in 200; do 
+  # for FPR in 0.0001; do
+  # for ADR in 0.5; do
+  # for rep in 9; do
+  #Sim 1b
+  # n_data_rep=10
+  # for n_mut in 300; do
+  # for n_cell in 10000; do 
+  # for FPR in 0.0001; do
+  # for ADR in 0.5; do
+  # for rep in $(seq 1 $n_data_rep); do
+  #Sim 2
+  # dset_name=s2
+  # n_data_rep=10
+  # for n_mut in 100; do
+  # for n_cell in 200; do 
+  # for FPR in 0.0001 0.01 ; do
+  # for ADR in 0.1 0.25 0.5 0.75; do
+  # for rep in $(seq 1 $n_data_rep); do
+  #Sim 3: variable adr
+  dset_name=s3
+  n_data_rep=10
+  variable_adr=true
+  # for n_mut in 100; do
+  # for n_cell in 200 500; do 
+  # for FPR in 0.0001 0.01 ; do
+  # for ADR in 0.1 0.25 0.5 0.75; do
+  # for rep in $(seq 1 $n_data_rep); do
+  for n_mut in 100; do
+  for n_cell in 500; do 
+  for FPR in 0.0001 0.01; do
+  for ADR in 0.1 0.25 0.5 0.75; do
+  for rep in $(seq 1 $n_data_rep); do
+  #Sim 4: ISA violations
+  # dset_name=s4
+  # n_data_rep=20
+  # run_isv_data=true
+  # # run_isv_data=false
+  # for n_mut in 50; do
+  # for n_cell in 200; do 
+  # for FPR in 0.0001 0.01 ; do
+  # for ADR in 0.1 0.5; do
+  # for rep in $(seq 1 $n_data_rep); do
+  #Sim 5: doublets
+  # dset_name=s5
+  # n_data_rep=10
+  # # run_dblt_data=true
+  # run_dblt_data=false
+  # # for n_mut in 50; do
+  # # for n_cell in 100 300; do 
+  # # for FPR in 0.0001 0.01 ; do
+  # # for ADR in 0.1 0.5; do
+  # # for rep in $(seq 1 $n_data_rep); do
+  # for n_mut in 50; do
+  # for n_cell in 100; do 
+  # for FPR in 0.0001 ; do
+  # for ADR in 0.1 0.5; do
+  # for rep in $(seq 1 $n_data_rep); do
+   #Sim 6: large datasets
+  # dset_name=s6
+  # n_data_rep=10
+  # sample_fewer_trees=true
+  # for n_mut in 300; do # 400 500 1000; do
+  # for n_cell in 1000; do 
+  # for FPR in 0.0001; do
+  # for ADR in 0.5; do
+  # for rep in $(seq 1 $n_data_rep); do
+    echo $n_mut $n_cell $FPR $ADR $rep
+    seed=`expr 1000 + $rep`
+
+    if [ "$run_isv_data" = true ]; then
+      data_filename="isv_data"
+    elif [ "$run_dblt_data" = true ]; then
+      data_filename="dblt_data"
+    fi
+    
+    fn=m${n_mut}_c${n_cell}_fp${FPR}_ad${ADR}
+    seed=`expr 1000 + $rep`
+
+    if [ $dset_name = "my_sim_dat_test" ]; then
+      my_ADR=$ADR
+    else
+      my_ADR=$(echo "1-sqrt(1-$ADR)"|bc -l)  
+    fi
+    fnr=$(echo "$my_ADR*(1-$my_ADR)"|bc -l)
+    fpr=$(echo "$FPR*($my_ADR*(1-$my_ADR)+(1-$my_ADR)^2)"|bc -l)
+
+    run_scp
+    # run_scite
+    # run_sasc
+    # run_huntress
+    # make_scp_supp_figs
+
+  done
+  done
+  done
+  done
+  done
+}
+
+function main {
+  run_all_sims
+}
+
+main

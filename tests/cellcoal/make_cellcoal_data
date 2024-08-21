@@ -5,52 +5,160 @@ RESDIR=~/work/sc_pairtree/tests/cellcoal/results
 
 function create_all_sims {
 
-  n_reps=20
   n_sites=10000 #length of the genome... mutations can fall anywhere along here
-  effective_population_size=10000 #Population size of entire sample we are drawing cells from
+  effective_population_size=100000 #Population size of entire sample we are drawing cells from
   pop_exponential_growth_rate=0.0001
-  somatic_mutation_rate=1e-7
+  #I think using higher birth rate and death rate (rather than just pop_exp_growth_rate) allows for longer branch lengths near the root (creating more subclones)
+  birth_rate=1
+  death_rate=0.999999999999999
+  # somatic_mutation_rate=1e-7
   # min_cells_per_node=2
-  root_branch_length_ratio=1
+  root_branch_length_ratio=2
   outgroup_branch_length_ratio=0
-  rate_variation_among_branches=20 #??? check this one...
+  rate_variation_among_branches=1 #??? check this one...
   alphabet=0 #use binary 0/1
   germline_snp_rate=0
-  doublet_rate=0
-  doublet_rate_var=0
-  sequencing_coverage=30
+  sequencing_coverage=50
   FPR_var=0.0000001
 
-  #Sim 1: comparing nmuts / ncells
-  # for n_muts in 50 100 200; do
-  # for n_cells in 500 1000 10000; do 
-  # for FPR in 0.001; do
-  # for ADO in 0.25; do
+  input_dataset_size_2_cellcoal_dataset_size=3
+  variable_adr=false
+  isa_violations=false
 
-  #Sim 2: comparing error rates
-  # for n_muts in 50 100 200; do
-  # for n_cells in 500 1000 10000; do 
-  # for FPR in 0.001 0.01; do
-  # for ADO in 0.1 0.25 0.5; do
-  #add in parameters so that ADO is selected from distribution
+  #Single dataset
+  # out_dir=$SIMDIR/test/ccres
+  # # n_reps=1
+  # for n_muts in 50; do
+  # for n_cells in 50; do 
+  # for fpr in 0.0001; do
+  # for adr in 0.75; do
+  # for rep in 5; do
 
-  #Just to test
-  for n_muts in 50; do
-  for n_cells in 500; do 
-  for FPR in 0.001; do
-  for ADO in 0.25; do
-    echo $n_muts $n_cells $sim
+  #Testing things out
+  # out_dir=$SIMDIR/test/ccres
+  # n_reps=5
+  # for n_muts in 10 25 50; do
+  # for n_cells in 50 250 1000; do
+  # for fpr in 0.0001 0.01; do
+  # for adr in 0.25 0.5 0.75; do
+  # for rep in $(seq 1 $n_reps); do
+
+  #Sim 1a: different dataset sizes - normalish range
+  # out_dir=$SIMDIR/s1/ccres
+  # n_reps=10
+  # # for n_muts in 50 100 200; do
+  # # for n_cells in 50 200 1000; do 
+  # for n_muts in 200; do
+  # for n_cells in 50; do 
+  # for fpr in 0.0001; do
+  # for adr in 0.5; do
+  # for rep in 10; do
+  # for rep in $(seq 1 $n_reps); do
+
+  #Sim 1b: different dataset sizes - large
+  # out_dir=$SIMDIR/s1/ccres
+  # n_reps=10
+  # for n_muts in 300; do
+  # for n_cells in 10000; do 
+  # for fpr in 0.0001; do
+  # for adr in 0.5; do
+  # for rep in $(seq 1 $n_reps); do
+
+  #Sim 2: comparing global error rates
+  # out_dir=$SIMDIR/s2/ccres
+  # n_reps=10
+  # for n_muts in 100; do
+  # for n_cells in 200; do 
+  # for fpr in 0.0001 0.01; do
+  # for adr in 0.1 0.25 0.5 0.75; do
+  # for rep in $(seq 1 $n_reps); do
+
+  #Sim 3: locus specific error rates
+  #add in parameters so that adr is selected from distribution
+  # out_dir=$SIMDIR/s3/ccres
+  # n_reps=10
+  # variable_adr=true
+  # # for n_muts in 100; do
+  # # for n_cells in 200 500; do 
+  # # for fpr in 0.01 0.0001; do
+  # # for adr in 0.1 0.25 0.5 0.75; do
+  # # for rep in $(seq 1 $n_reps); do
+  # for n_muts in 100; do
+  # for n_cells in 200; do 
+  # for fpr in 0.0001; do
+  # for adr in 0.75; do
+  # for rep in 9; do
+
+  #Sim 4: ISA violations
+  # out_dir=$SIMDIR/s4/ccres
+  # n_reps=20
+  # # # isa_violations=false #This is now done afterwards
+  # for n_muts in 50; do
+  # for n_cells in 200; do 
+  # for fpr in 0.0001 0.01; do
+  # for adr in 0.1 0.5; do
+  # for rep in $(seq 1 $n_reps); do
+
+  #Sim 5: Cell doublets
+  # out_dir=$SIMDIR/s5/ccres
+  # n_reps=10
+  # for n_muts in 50; do
+  # for n_cells in 100 300; do 
+  # for fpr in 0.0001 0.01 ; do
+  # for adr in 0.1 0.5; do
+  # for rep in $(seq 1 $n_reps); do
+  # for n_cells in 100; do 
+  # for fpr in 0.0001; do
+  # for adr in 0.5; do
+  # for rep in 1; do
+
+  #Sim 6: Large datasets
+  out_dir=$SIMDIR/s6/ccres
+  n_reps=10
+  # for n_muts in 300 400 500 1000; do
+  # for n_cells in 1000; do 
+  for n_muts in 1000; do
+  for n_cells in 1000; do 
+  for fpr in 0.0001 ; do
+  for adr in 0.5; do
+  for rep in $(seq 1 $n_reps); do
+
+    echo $n_muts $n_cells $fpr $adr $rep
+    n_muts_cc=$(echo "$input_dataset_size_2_cellcoal_dataset_size*$n_muts"|bc -l)
+    n_cells_cc=$(echo "$input_dataset_size_2_cellcoal_dataset_size*$n_cells"|bc -l)
     # seed=`expr 1000 + $sim`
-    fn=ISM/m${n_muts}_c${n_cells}_fp${FPR}_ad${ADO}
-    out_fn=$SIMDIR/$fn
+    fn=m${n_muts_cc}_c${n_cells_cc}_fp${fpr}_ad${adr}/rep${rep}
+    out_fn=$out_dir/$fn
     mkdir -p $out_fn
-    
+    echo $out_fn
+
+    if $variable_adr; then
+      adr_var=$(echo "$adr*(1-$adr)/2"|bc -l)  
+      var_adr_params=-Q$adr' '$adr_var
+      fixed_adr_params=' '
+    else
+      var_adr_params=' '
+      fixed_adr_params=-D$adr
+    fi
+
+    # if $isa_violations; then
+    #   somatic_mutation_rate=-u6e-8
+    #   alt_mut_model=-m1
+    #   prop_alt_model_sites=-p0.5
+    #   n_fixed_muts=' '
+    # else
+    somatic_mutation_rate=' '
+    alt_mut_model=' '
+    prop_alt_model_sites=' '
+    n_fixed_muts=-j$n_muts_cc
+    # fi
     # ${BINDIR}/cellcoal-1.2.0 -n1 -s20 -b0 -l100 -e10000 -g0.001 -j50 -k0.5 -q1 -u1.0e-07 -m0 -p0.0 -D0.0 -C5 -1 -2 -3 -4 -6 -Y -o$SIMDIR -y1
 
-    ${BINDIR}/cellcoal-1.2.0 \
-                        -g$pop_exponential_growth_rate \
-                        -n$n_reps \
-                        -s$n_cells \
+    ${BINDIR}/cellcoal-1.2.2 \
+                        -n1 \
+                        -s$n_cells_cc \
+                        -K$birth_rate \
+                        -L$death_rate \
                         -l$n_sites \
                         -e$effective_population_size \
                         -k$root_branch_length_ratio \
@@ -59,22 +167,26 @@ function create_all_sims {
                         -p0.0 \
                         -b$alphabet \
                         -c$germline_snp_rate \
-                        -u$somatic_mutation_rate \
-                        -j$n_muts \
-                        -D$ADO \
-                        -G$FPR $FPR_var \
-                        -2 -4 -6 \
+                        $somatic_mutation_rate \
+                        $n_fixed_muts \
+                        $alt_mut_model \
+                        $prop_alt_model_sites \
+                        $fixed_adr_params \
+                        $var_adr_params \
+                        -G$fpr $FPR_var \
+                        -2 -6 \
                         -Y \
                         -v \
                         -o$out_fn \
                         -y1
-                        # -B$doublet_rate $doublet_rate_var\
+                        # -C$sequencing_coverage \
+                        # -g$pop_exponential_growth_rate \
                         # -h1 1 $effective_population_size 100 \
                         # -i$rate_variation_among_branches \
-                        # -C$sequencing_coverage \
-                        # -A$FPR $FPR_var 1 \
+                        # -A$fpr $FPR_var 1 \
 
 
+  done
   done
   done
   done
