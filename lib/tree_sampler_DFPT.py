@@ -303,8 +303,7 @@ def _calc_sample_llhs(samples, data, mut_ass, fprs, ados, d_rng_i):
     n_samples = samples.shape[0]
     llhs = np.zeros(n_samples)
     for i in range(n_samples):
-        adj = tree_util.convert_parents_to_adjmatrix(samples[i])
-        anc = tree_util.convert_adjmatrix_to_ancmatrix(adj)
+        anc = tree_util.convert_parents_to_ancmatrix(samples[i])
         llhs[i] = tree_util.calc_tree_llh(data,anc,mut_ass,fprs,ados,d_rng_i)
     return llhs
 
@@ -318,7 +317,7 @@ def calc_sample_llhs(samples, data, mut_ass, fprs, ados, d_rng_i, parallel=None)
             jobs = []
             chunksize = int(np.max([1,np.min([100, np.ceil(n_samples/parallel)])]))
             for i in range(int(np.floor(n_samples/chunksize))):
-                jobs.append(pool.apply_async(calc_sample_llhs, args=(samples[chunksize*i:chunksize*(i+1),:], data, mut_ass, fprs, ados, d_rng_i)))
+                jobs.append(pool.apply_async(_calc_sample_llhs, args=(samples[chunksize*i:chunksize*(i+1),:], data, mut_ass, fprs, ados, d_rng_i)))
             # remainder = n_samples % chunksize
             jobs.append(pool.apply_async(_calc_sample_llhs, args=(samples[chunksize*(i+1):,:], data, mut_ass, fprs, ados, d_rng_i)))
             pool.close()
