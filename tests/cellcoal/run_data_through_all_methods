@@ -3,7 +3,8 @@ SCITE_BINDIR=~/work/phylo_methods/SCITE
 SASC_BINDIR=~/work/phylo_methods/sasc
 HUNTRESS_BINDIR=~/work/phylo_methods/HUNTRESS
 # SICLONEFIT_BINDIR=
-DATADIR=~/work/sc_pairtree/tests/cellcoal/data
+# DATADIR=~/work/sc_pairtree/tests/cellcoal/data
+DATADIR=/data/morrisq/barberj/scp/data
 RESDIR=~/work/sc_pairtree/tests/cellcoal/results
 
 
@@ -26,6 +27,10 @@ run_scp_nojob() {
     out_fn=$out_fn/isv_data
   elif [ "$run_dblt_data" = true ]; then
     out_fn=$out_fn/dblt_data
+  fi
+
+  if [ "$perf_global_err_est_on_indiv_err" = true ]; then
+    out_fn=$out_fn/global_err_est
   fi
 
   mkdir -p $out_fn
@@ -70,6 +75,15 @@ run_scp () {
     out_fn=$out_fn/isv_data
   elif [ "$run_dblt_data" = true ]; then
     out_fn=$out_fn/dblt_data
+  elif [ "$sample_fewer_trees" = true ]; then
+    out_fn=$out_fn/fewer_tree_samples
+  elif [ "$scp_speedtest" = true ]; then
+    out_fn=$out_fn/speed_test
+    burnin=0
+  fi
+
+  if [ "$perf_global_err_est_on_indiv_err" = true ]; then
+    out_fn=$out_fn/global_err_est
   fi
 
   mkdir -p $out_fn
@@ -79,38 +93,42 @@ run_scp () {
     tpc=`expr $n_mut \* 100`
   fi
 
-  if [ "$variable_adr" = true ]; then
-    bsub -n10 -R rusage[mem=8] -W 72:00 -oo $out_fn/log \
-      \time -o $out_fn/time -f "Runtime: %E\n" \
-        python $SCP_BINDIR/sc_pairtree.py $data_fn \
-                                          $out_fn/results \
-                                          --seed $seed \
-                                          --data-range $d_rng_id \
-                                          --parallel $n_mcmc_rep \
-                                          --trees-per-chain $tpc \
-                                          --burnin $burnin \
-                                          --thinned-frac $thin_frac \
-                                          --mut-id-fn $mut_id_fn \
-                                          --n-cluster-iter $n_clust_iter \
-                                          --rerun \
-                                          --skip-clustering \
-                                          --variable-adr
-  else
-    bsub -n10 -R rusage[mem=8] -W 72:00 -oo $out_fn/log \
-      \time -o $out_fn/time -f "Runtime: %E\n" \
-        python $SCP_BINDIR/sc_pairtree.py $data_fn \
-                                          $out_fn/results \
-                                          --seed $seed \
-                                          --data-range $d_rng_id \
-                                          --parallel $n_mcmc_rep \
-                                          --trees-per-chain $tpc \
-                                          --burnin $burnin \
-                                          --thinned-frac $thin_frac \
-                                          --mut-id-fn $mut_id_fn \
-                                          --n-cluster-iter $n_clust_iter \
-                                          --rerun \
-                                          --skip-clustering
+  if [ "$only_est_errs" = true ]; then
+    only_est_err_cmd="--only-estimate-errors"
   fi
+
+  if [ "$variable_adr" = true ]; then
+    var_adr_cmd="--variable-adr"
+  fi
+
+  if [ "$scp_run_dfpt" = true ]; then
+    run_dfpt_cmd="--perform-dfpt-sampling"
+  fi  
+
+  rerun_cmd="--rerun"
+  time_fn="time"
+  if [ "$scp_dont_rerun" = true ]; then
+    rerun_cmd=""
+    time_fn="time_no_rerun"
+  fi
+
+  bsub -n10 -R rusage[mem=8] -W 72:00 -oo $out_fn/log \
+    \time -o $out_fn/$time_fn -f "Runtime: %E\n" \
+      python $SCP_BINDIR/sc_pairtree.py $data_fn \
+                                        $out_fn/results \
+                                        --seed $seed \
+                                        --data-range $d_rng_id \
+                                        --parallel $n_mcmc_rep \
+                                        --trees-per-chain $tpc \
+                                        --burnin $burnin \
+                                        --thinned-frac $thin_frac \
+                                        --mut-id-fn $mut_id_fn \
+                                        --n-cluster-iter $n_clust_iter \
+                                        $rerun_cmd \
+                                        $run_dfpt_cmd \
+                                        --skip-clustering \
+                                        $var_adr_cmd \
+                                        $only_est_err_cmd
 
 }
 
@@ -122,6 +140,8 @@ make_scp_supp_figs () {
     out_fn=$out_fn/isv_data
   elif [ "$run_dblt_data" = true ]; then
     out_fn=$out_fn/dblt_data
+  elif [ "$sample_fewer_trees" = true ]; then
+    out_fn=$out_fn/fewer_tree_samples
   fi
   mkdir -p $out_fn
 
@@ -149,6 +169,8 @@ run_scite () {
     output_dir=$output_dir/isv_data
   elif [ "$run_dblt_data" = true ]; then
     output_dir=$output_dir/dblt_data
+  elif [ "$sample_fewer_trees" = true ]; then
+    output_dir=$output_dir/fewer_tree_samples
   fi
   mkdir -p $output_dir
 
@@ -188,6 +210,8 @@ run_sasc () {
   cooling_rate=0.002
   FP_est_std=0.0001
   FN_est_std=0.1
+  dollok_param="-k 0"
+  del_param="-d 0"
 
   datadir=$DATADIR/$dset_name/sasc_input
   resdir=$RESDIR/$dset_name/sasc
@@ -197,9 +221,22 @@ run_sasc () {
   out_fn=$resdir/$fn/rep$rep
   if [ "$run_isv_data" = true ]; then
     out_fn=$out_fn/isv_data
+    dollok_param="-k 1"
+    del_param="-d 1"
   elif [ "$run_dblt_data" = true ]; then
     out_fn=$out_fn/dblt_data
   fi
+
+  if [ "$variable_adr" = true ]; then
+    fnr_file=$datadir/$fn/rep$rep/init_fnrs
+    ldr_file=$datadir/$fn/rep$rep/init_ldrs
+    out_fn=$out_fn/indiv_err_rates
+    fnr_cmd="-a "$fnr_file
+    ldr_cmd="-g "$ldr_file" -G"$FN_est_std
+  else
+    fnr_cmd="-a "$fnr
+  fi
+
   mkdir -p $out_fn
 
   bsub -n10 -R rusage[mem=8] -W 72:00 -oo $out_fn/log \time -o $out_fn/time -f "Runtime: %E\n" \
@@ -208,10 +245,10 @@ run_sasc () {
               -e $mut_id_fn \
               -n $n_cell \
               -m $n_mut \
-              -k 0 \
-              -a $fnr \
+              $dollok_param \
+              $del_param \
+              $fnr_cmd \
               -b $fpr \
-              -d 0 \
               -r $n_sasc_rep \
               -p $n_sasc_rep \
               -S $starting_temp \
@@ -247,16 +284,16 @@ run_huntress () {
 }
 
 function run_all_sims {
-  data_filename="data"
-
+  
   #test dataset
   # dset_name=test
+  # scp_run_dfpt=true #!!!#
+  # scp_dont_rerun=true #!!!#
   # n_data_rep=5
   # for n_mut in 10 25 50; do
   # for n_cell in 50 250 1000; do 
   # for FPR in 0.0001 0.01; do
   # for ADR in 0.25 0.5 0.75; do
-  # for rep in $(seq 1 $n_data_rep); do
   #testing using my original data simulator
   # dset_name=my_sim_dat_test
   # n_data_rep=10
@@ -265,48 +302,50 @@ function run_all_sims {
   # for FPR in 0.0001 0.01; do
   # for ADR in 0.1 0.5; do
   # for rep in $(seq 1 $n_data_rep); do
-  #Sim 1a: different dataset sizes - normalish range
+  #Sim 1: different dataset sizes - normalish range
   # dset_name=s1
   # n_data_rep=10
-  # for n_mut in 50 100 200; do
-  # for n_cell in 50 200 1000; do 
+  # scp_speedtest=false #!!!#
+  # scp_run_dfpt=true #!!!#
+  # scp_dont_rerun=true #!!!#
+  # # for n_mut in 50 100 200; do
+  # # for n_cell in 50 200 1000; do 
+  # # for FPR in 0.0001; do
+  # # for ADR in 0.5; do
+  # # for rep in $(seq 1 $n_data_rep); do
+  # for n_mut in 200; do
+  # for n_cell in 1000; do # 200 1000; do 
   # for FPR in 0.0001; do
   # for ADR in 0.5; do
-  # for rep in $(seq 1 $n_data_rep); do
-  # for n_mut in 100; do
-  # for n_cell in 200; do 
-  # for FPR in 0.0001; do
-  # for ADR in 0.5; do
-  # for rep in 9; do
-  #Sim 1b
-  # n_data_rep=10
-  # for n_mut in 300; do
-  # for n_cell in 10000; do 
-  # for FPR in 0.0001; do
-  # for ADR in 0.5; do
-  # for rep in $(seq 1 $n_data_rep); do
+  # for rep in 10; do
   #Sim 2
   # dset_name=s2
   # n_data_rep=10
+  # # for n_mut in 100; do
+  # # for n_cell in 200; do 
+  # # for FPR in 0.0001 0.01 ; do
+  # # for ADR in 0.1 0.25 0.5 0.75; do
+  # # for rep in $(seq 1 $n_data_rep); do
   # for n_mut in 100; do
   # for n_cell in 200; do 
-  # for FPR in 0.0001 0.01 ; do
-  # for ADR in 0.1 0.25 0.5 0.75; do
-  # for rep in $(seq 1 $n_data_rep); do
+  # for FPR in 0.0001; do
+  # for ADR in 0.5; do
+  # for rep in 7; do
   #Sim 3: variable adr
-  dset_name=s3
-  n_data_rep=10
-  variable_adr=true
-  # for n_mut in 100; do
+  # dset_name=s3
+  # n_data_rep=10
+  # variable_adr=true
+  # perf_global_err_est_on_indiv_err=false
+  # # for n_mut in 50 100; do
+  # # for n_cell in 200 500; do 
+  # # for FPR in 0.0001 0.01 ; do
+  # # for ADR in 0.1 0.25 0.5 0.75; do
+  # # for rep in $(seq 1 $n_data_rep); do
+  # for n_mut in 50; do
   # for n_cell in 200 500; do 
   # for FPR in 0.0001 0.01 ; do
   # for ADR in 0.1 0.25 0.5 0.75; do
   # for rep in $(seq 1 $n_data_rep); do
-  for n_mut in 100; do
-  for n_cell in 500; do 
-  for FPR in 0.0001 0.01; do
-  for ADR in 0.1 0.25 0.5 0.75; do
-  for rep in $(seq 1 $n_data_rep); do
   #Sim 4: ISA violations
   # dset_name=s4
   # n_data_rep=20
@@ -320,34 +359,51 @@ function run_all_sims {
   #Sim 5: doublets
   # dset_name=s5
   # n_data_rep=10
+  # run_isv_data=true
   # # run_dblt_data=true
-  # run_dblt_data=false
-  # # for n_mut in 50; do
-  # # for n_cell in 100 300; do 
-  # # for FPR in 0.0001 0.01 ; do
-  # # for ADR in 0.1 0.5; do
-  # # for rep in $(seq 1 $n_data_rep); do
+  # for n_mut in 50; do
+  # for n_cell in 100 300; do 
+  # for FPR in 0.0001 0.01 ; do
+  # for ADR in 0.1 0.5; do
+  # for rep in $(seq 1 $n_data_rep); do
   # for n_mut in 50; do
   # for n_cell in 100; do 
   # for FPR in 0.0001 ; do
-  # for ADR in 0.1 0.5; do
-  # for rep in $(seq 1 $n_data_rep); do
+  # for ADR in 0.1; do
+  # for rep in 1; do
    #Sim 6: large datasets
   # dset_name=s6
   # n_data_rep=10
-  # sample_fewer_trees=true
-  # for n_mut in 300; do # 400 500 1000; do
+  # for n_mut in 500; do #300 400 500 1000; do
   # for n_cell in 1000; do 
   # for FPR in 0.0001; do
   # for ADR in 0.5; do
   # for rep in $(seq 1 $n_data_rep); do
+  #Sim 7: very various err rates (just for scp)
+  dset_name=s7
+  n_data_rep=1
+  only_est_errs=true
+  # for n_mut in 20 50; do
+  # for n_cell in 50 300; do 
+  # for FPR in 0.0001 0.00033 0.001 0.00333 0.01 ; do
+  # for ADR in 0.05 0.1 0.15 0.2 0.25 0.3 0.35 0.4 0.45 0.5 0.55 0.6 0.65 0.7 0.75 0.8 0.85 0.9; do
+  # for rep in $(seq 1 $n_data_rep); do
+  for n_mut in 50; do
+  for n_cell in 50; do 
+  for FPR in 0.0001; do
+  for ADR in 0.4 0.75; do
+  for rep in 1; do
     echo $n_mut $n_cell $FPR $ADR $rep
     seed=`expr 1000 + $rep`
+  
+    # sample_fewer_trees=true
 
     if [ "$run_isv_data" = true ]; then
       data_filename="isv_data"
     elif [ "$run_dblt_data" = true ]; then
       data_filename="dblt_data"
+    else
+      data_filename="data"
     fi
     
     fn=m${n_mut}_c${n_cell}_fp${FPR}_ad${ADR}
@@ -361,10 +417,10 @@ function run_all_sims {
     fnr=$(echo "$my_ADR*(1-$my_ADR)"|bc -l)
     fpr=$(echo "$FPR*($my_ADR*(1-$my_ADR)+(1-$my_ADR)^2)"|bc -l)
 
-    run_scp
+    # run_scp
     # run_scite
     # run_sasc
-    # run_huntress
+    run_huntress
     # make_scp_supp_figs
 
   done
@@ -379,3 +435,5 @@ function main {
 }
 
 main
+
+

@@ -1,5 +1,6 @@
 import numpy as np
 import os, sys, shutil
+from scpeval_common import DATA_DIR
 sys.path.append(os.path.abspath('../../lib'))
 from util import find_first
 from data_simulator import _apply_errors, _put_data_in_drange_format
@@ -87,17 +88,51 @@ def make_doubleted_data_for_given_dataset(data_dir, fpr, adr, doublet_rate):
     return
 
 
+def determine_percent_branched_doublets_for_given_dataset(data_dir, fpr, adr, doublet_rate):
+    assert doublet_rate >= 0 and doublet_rate <= 1
+    my_adr = 1-np.sqrt(1-adr)
+
+    data, true_data, mut_clst_ass, cell_clst_ass, mut_anc_mat, clust_anc_mat = load_data(data_dir)
+    n_mut, n_cell = data.shape
+
+    n_doublet = int(np.round(n_cell*doublet_rate))
+
+    cells_to_doublet    = select_cells(n_cell, n_doublet)
+    cell_genos_to_apply = select_cells(n_cell, n_doublet)
+    
+    n_branched = 0
+    for cell,geno in zip(cells_to_doublet, cell_genos_to_apply):
+        true_OG_cell_geno = true_data[:,cell]
+        true_geno_to_add  = true_data[:,geno]
+        n10 = np.sum((true_OG_cell_geno==1)&(true_geno_to_add==0))
+        n01 = np.sum((true_OG_cell_geno==0)&(true_geno_to_add==1))
+        if n10>0 and n01>0:
+            n_branched+=1
+    print("% branched doublets:", n_branched/n_doublet)
+
+    return n_branched, n_doublet
+
+
 def main():
 
     dataset = "s5"
-    n_muts = [50]# [20, 50, 100]
-    n_cells = [100]#, 300]
-    fprs = [0.0001]#, 0.01]
+    # n_muts = [50]# [20, 50, 100]
+    # n_cells = [100]#, 300]
+    # fprs = [0.0001]#, 0.01]
+    # adrs = [0.1]#, 0.5]
+    # reps = [1]#np.arange(1,10+1)
+
+    n_muts = [50]
+    n_cells = [100, 300]
+    fprs = [0.0001, 0.01]
     adrs = [0.1, 0.5]
-    reps = np.arange(1,10+1)
+    n_reps = 10
+    reps = np.arange(1,n_reps+1)
 
     doublet_rate = 0.1
 
+    # n_brancheds = 0
+    # n_doublets = 0
     for n_mut in n_muts:
         for n_cell in n_cells:
             for fpr in fprs:
@@ -105,8 +140,13 @@ def main():
                     for rep in reps:
                         print(n_mut, n_cell, fpr, adr, rep)
                         paramset_fn = "m{}_c{}_fp{}_ad{}".format(n_mut,n_cell,fpr,adr)
-                        data_dir = os.path.join(".", 'data', dataset, 'scp_input', paramset_fn, 'rep'+str(rep))
-                        make_doubleted_data_for_given_dataset(data_dir, fpr, adr, doublet_rate)
+                        data_dir = os.path.join(DATA_DIR, dataset, 'scp_input', paramset_fn, 'rep'+str(rep))
+                        # make_doubleted_data_for_given_dataset(data_dir, fpr, adr, doublet_rate)
+                        # n_branched, n_doublet = determine_percent_branched_doublets_for_given_dataset(data_dir, fpr, adr, doublet_rate)
+                        # n_brancheds += n_branched
+                        # n_doublets += n_doublet
+    
+    print("Final:", n_brancheds/n_doublets)
     return
 
 if __name__ == "__main__":
