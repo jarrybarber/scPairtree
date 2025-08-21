@@ -5,7 +5,7 @@ from common import Models
 from util import find_first
 from pairs_tensor_util import p_data_given_truth_and_errors
 
-# @njit(cache=True)
+@njit(cache=True)
 def _get_breadth_first_traversal(adj,start_ind=0):
 
     bst = [start_ind]
@@ -18,7 +18,7 @@ def _get_breadth_first_traversal(adj,start_ind=0):
     return bst
 
 
-# @njit(cache=True)
+@njit(cache=True)
 def calc_tree_llh(data,anc,mut_ass,fpr,ado,d_rng_i):
     d_range = common.get_d_range(d_rng_i)
     n_mut, n_cell = data.shape

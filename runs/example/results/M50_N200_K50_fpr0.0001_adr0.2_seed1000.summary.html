@@ -1,0 +1,743 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>M50_N200_K50_fpr0.0001_adr0.2_seed1000 posterior summary</title>
+<script type="text/javascript" src="https://d3js.org/d3.v5.min.js"></script>
+<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.14.0/cytoscape.min.js"></script>
+<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/klayjs@0.4.1/klay.min.js"></script>
+<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/cytoscape-klay@3.1.3/cytoscape-klay.min.js"></script>
+<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/numeric@1.2.6/numeric-1.2.6.min.js"></script>
+<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/layout-base@1.0.2/layout-base.min.js"></script>
+<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/cose-base@1.0.1/cose-base.min.js"></script>
+<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/cytoscape-fcose@1.2.0/cytoscape-fcose.min.js"></script>
+<script type="text/javascript" src="https://unpkg.com/popper.js@1"></script>
+<script type="text/javascript" src="https://unpkg.com/tippy.js@5"></script>
+<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/cytoscape-popper@1.0.6/cytoscape-popper.min.js"></script>
+<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/canvas2svg@1.0.16/canvas2svg.min.js"></script>
+<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/cytoscape-svg@0.2.0/cytoscape-svg.min.js"></script>
+<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/file-saver@2.0.2/dist/FileSaver.min.js"></script>
+<script type="text/javascript">// 'letters' or 'digits'
+var LABEL_TYPE = 'digits';
+// 'circle' or 'square'
+var NODE_TYPE = 'circle';
+
+// Following two functions from https://stackoverflow.com/a/18473154.
+function polarToCartesian(centerX, centerY, radius, angleInDegrees) {
+  // Add 90 degrees to rotate coordinate system so that arcs start at the
+  // bottom of the circle and rotate clockwise.
+  var angleInRadians = (angleInDegrees + 90) * Math.PI/180.0;
+  return {
+    x: centerX + (radius * Math.cos(angleInRadians)),
+    y: centerY + (radius * Math.sin(angleInRadians))
+  };
+}
+
+function describeArc(x, y, radius, startAngle, endAngle) {
+  var start = polarToCartesian(x, y, radius, startAngle);
+  var end = polarToCartesian(x, y, radius, endAngle);
+  var largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
+  var d = [
+    "M", start.x, start.y,
+    "A", radius, radius, 0, largeArcFlag, 1, end.x, end.y,
+    "L", x, y,
+    "L", start.x, start.y,
+  ].join(" ");
+
+  return d;
+}
+
+function describeRect(x, y, width, height) {
+  var d = [
+    "M", x, y,
+    "H", x + width,
+    "V", y + height,
+    "H", x,
+    "Z"
+  ].join(" ");
+  return d;
+}
+
+function TreePlotter() {
+}
+
+TreePlotter.prototype._calculate_max_depth = function(root) {
+  var _calc_max_depth = function(node) {
+    if(!node.hasOwnProperty('children')) {
+      return 0;
+    }
+    var max_depth = 0;
+    node.children.forEach(function(child) {
+      var nd = _calc_max_depth(child);
+      if(nd > max_depth)
+        max_depth = nd;
+    });
+    return 1 + max_depth;
+  };
+  return _calc_max_depth(root);
+}
+
+TreePlotter.prototype._label_node = function(node_id) {
+  if(LABEL_TYPE === 'digits') {
+    return node_id;
+  }
+  // Restrict to valid alphabet range.
+  if(node_id < 1 || node_id > 26) {
+    return node_id;
+  }
+  var letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  return letters[node_id - 1];
+}
+
+TreePlotter.prototype._draw_tree = function(root, container, sampnames, samp_colours, pop_colours, bg_colour) {
+  // horiz_padding should be set to the maximum radius of a node, so a node
+  // drawn on a boundry won't go over the canvas edge. Since max_area = 8000,
+  // we have horiz_padding = sqrt(8000 / pi) =~ 51.
+  var horiz_padding = 51;
+  var max_depth = this._calculate_max_depth(root);
+  var m = [10, horiz_padding, 10, horiz_padding],
+      w = Math.max(150, 120*max_depth - m[1] - m[3]),
+      h = 430 - m[0] - m[2],
+      i = 0;
+
+  // Compute the new tree layout.
+  var tree = d3.tree().size([h, w]);
+  root = tree(d3.hierarchy(root));
+  root.descendants().sort(function(a, b) {
+    return d3.ascending(parseInt(a.data.name, 10), parseInt(b.data.name, 10));
+  });
+  var svg = container.append('svg:svg')
+      .attr('width', w + m[1] + m[3])
+      .attr('height', h + m[0] + m[2]);
+  svg.append('svg:defs')
+    .append('svg:marker')
+    .attr('id', 'arrowhead')
+    .attr('orient', 'auto')
+    .attr('markerWidth', 10)
+    .attr('markerHeight', 10)
+    .attr('markerUnits', 'strokeWidth')
+    .attr('refX', 0)
+    .attr('refY', 3)
+    .append('svg:path')
+    .attr('d', 'M0,0 L0,6 L9,3 z');
+  var vis = svg.append('svg:g')
+      .attr('transform', 'translate(' + m[3] + ',' + m[0] + ')');
+
+  // Update the nodes.
+  var node = vis.selectAll('g.node')
+      .data(root.descendants(), function(d) { return d.data.name; });
+
+  var self = this;
+  // Enter any new nodes at the parent's previous position.
+  var nodeEnter = node.enter().append('svg:g');
+  nodeEnter.attr('class', 'population')
+    .attr('transform', function(d) { return 'translate(' + d.y + ',' + d.x + ')'; });
+
+  if(NODE_TYPE === 'circle') {
+    nodeEnter.append('svg:circle')
+      .attr('class', 'outline')
+      .attr('r', function(d) { return d.data.radius; });
+  } else {
+    nodeEnter.append('svg:rect')
+      .attr('class', 'outline')
+      .attr('x', function(d) { return -d.data.radius; })
+      .attr('y', function(d) { return -d.data.radius; })
+      .attr('width', function(d) { return 2*d.data.radius; })
+      .attr('height', function(d) { return 2*d.data.radius; });
+  }
+
+  var choose_colour = function(node_idx, slice_idx, phi) {
+    if(samp_colours !== null) {
+      let [samp_name, base_colour] = samp_colours[slice_idx];
+      let samp_idx = sampnames.indexOf(samp_name);
+      let opacity = phi[samp_idx];
+      return Util.blend_colours(base_colour, opacity, bg_colour);
+    } else if(pop_colours !== null) {
+      return pop_colours[node_idx];
+    } else {
+      return '#428bca';
+    }
+  };
+
+  var slices = (samp_colours === null) ? 1 : samp_colours.length;
+  var add_slice = function(slice_idx, total_slices) {
+    if(!(0 <= slice_idx && slice_idx < total_slices)) {
+      throw "wrong number of slices: " + slice_idx + ", " + total_slices;
+    }
+    nodeEnter.append('svg:path')
+      .attr('d', function(d) {
+        if (NODE_TYPE === 'circle') {
+          var deg = 360 / total_slices;
+          // Without this, Chrome will draw nothing when there's only a single slice.
+          deg = Math.min(deg, 359.9);
+          var start = slice_idx * deg;
+          var end = (slice_idx + 1)*deg;
+          return describeArc(0, 0, d.data.radius, start, end);
+        } else {
+          var total_width = 2*d.data.radius;
+          var slice_width = total_width / total_slices;
+          var x = -d.data.radius + (slice_idx * slice_width);
+          return describeRect(x, -d.data.radius, slice_width, 2*d.data.radius);
+        }
+      }).attr('fill', function(d, i) {
+        return choose_colour(d.data.name, slice_idx, d.data.phi);
+      });
+  };
+  for(var idx = 0; idx < slices; idx++) {
+    add_slice(idx, slices);
+  }
+  /*nodeEnter.append('svg:path')
+    .attr('class', 'divider')
+    .attr('stroke', '#aaa')
+    .attr('d', function(d) { return 'M 0 -' + d.data.radius + ' V ' + d.data.radius; });*/
+
+  nodeEnter.append('svg:text')
+      .attr('font-size', '30')
+      .attr('dominant-baseline', 'central')
+      .attr('text-anchor', 'middle')
+      .text(function(d) { return self._label_node(d.data.name); });
+
+  // Update the links.
+  var link = vis.selectAll('path.link')
+      .data(root.links(), function(d) { return d.target.data.name; });
+
+  // Enter any new links at the parent's previous position.
+  var arrowhead_width = 14;
+  link.enter()
+    .insert('svg:path', 'g')
+    .attr('marker-end', 'url(#arrowhead)')
+    .attr('class', 'link')
+    .attr('d', d3.linkHorizontal().source(function(d) {
+      return [d.source.y + d.source.data.radius, d.source.x];
+    }).target(function(d) {
+      return [d.target.y - d.source.data.radius - arrowhead_width, d.target.x];
+    }));
+}
+
+TreePlotter.prototype._generate_tree_struct = function(parents, phi, root_id) {
+  var _add_node = function(node_id, struct) {
+    struct.name = node_id;
+    struct.radius = Math.sqrt(2000 / Math.PI);
+    struct.phi = phi[node_id];
+
+    var children = [];
+    for(var idx = 0; idx < parents.length; idx++) {
+      if(parents[idx] === node_id) {
+        children.push(idx + 1);
+      }
+    }
+
+    struct.children = [];
+    children.forEach(function(child_id) {
+      var child = {};
+      struct.children.push(child);
+      _add_node(child_id, child);
+    });
+  };
+
+  var root = {};
+  _add_node(root_id, root);
+  return root;
+}
+
+TreePlotter.prototype.plot = function(root_id, parents, phi, sampnames, samp_colours, pop_colours, remove_normal, container) {
+  container = d3.select(container).append('div');
+  var bg_colour = '#ffffff';
+
+  var root = this._generate_tree_struct(parents, phi, root_id);
+  this._draw_tree(root, container, sampnames, samp_colours, pop_colours, bg_colour);
+  resize_svg(container.selectAll('svg'));
+}
+
+</script>
+<script type="text/javascript">function PosteriorSumm() {
+}
+
+PosteriorSumm.prototype.plot = function(results, container) {
+  if(results.structs.length === 0) {
+    return;
+  }
+
+  results.structs.forEach(function(struct, idx) {
+    var row = d3.select(container).append('tr');
+    var struct_id = 'structure_' + idx;
+    var tree_container = '#' + struct_id;
+
+    row.append('td').text(idx);
+    row.append('td').text((100 * struct.prob).toFixed(1) + '%');
+    row.append('td').text(struct.nlglh.toFixed(3));
+    row.append('td').text(struct.count);
+    row.append('td').attr('id', struct_id);
+
+    var root = 0;
+    (new TreePlotter()).plot(
+      root,
+      struct.parents,
+      struct.phi,
+      struct.samples,
+      results.samp_colours,
+      null,
+      false,
+      tree_container,
+    );
+    // Resize tree to fit in table.
+    d3.select(tree_container)
+      .select('svg')
+      .attr('width', '100%');
+  });
+}
+
+function CongraphPlotter() {
+  this._layout_options = {
+    klay: {
+      name: 'klay',
+      animate: true,
+      klay: {
+        direction: 'RIGHT',
+      },
+    },
+
+    fcose: {
+      name: 'fcose',
+    },
+  };
+
+  this._default_layout = this._layout = 'klay';
+}
+
+CongraphPlotter.prototype.plot = function(cgraph, container, threshold_display) {
+  const self = this;
+  const min_threshold = 0.01;
+  const default_threshold = 0.05;
+
+  const spanning_threshold = this._find_min_spanning_threshold(cgraph);
+  if(spanning_threshold < min_threshold) {
+    throw "spanning_threshold < min_threshold, implying some parts of the graph will always be disconnected";
+  }
+  d3.select('#spanning_threshold').text(Math.round(100*spanning_threshold) + '%');
+
+  var [nodes, edges] = this._make_graph(cgraph, min_threshold);
+  this._draw(nodes, edges, container);
+
+  this._cy.ready(() => {
+    self._config_layout_chooser('#layout_chooser');
+    self._config_edge_weight_display();
+    self._config_threshold_chooser('#threshold_chooser', '#congraph_threshold', min_threshold, default_threshold);
+    self._config_exporters('#export_svg', '#export_png');
+  });
+}
+
+CongraphPlotter.prototype._find_min_spanning_threshold = function(cgraph) {
+  var K = cgraph.length;
+  var threshold = 1;
+
+  for(var J = 1; J < K; J++) {
+    var max_J = 0;
+    for(var I = 0; I < K; I++) {
+      if(cgraph[I][J] > max_J) {
+        max_J = cgraph[I][J];
+      }
+    }
+    if(threshold > max_J) {
+      threshold = max_J;
+    }
+  }
+  return threshold;
+}
+
+CongraphPlotter.prototype._make_graph = function(cgraph, threshold=0.2) {
+  var K = cgraph.length;
+  var nodes = [];
+  var edges = [];
+
+  for(var I = 0; I < K; I++) {
+    nodes.push({
+      id: I,
+      name: I,
+      radius: 20,
+    });
+    for(var J = 0; J < K; J++) {
+      if(cgraph[I][J] >= threshold) {
+        edges.push({
+          source: I,
+          target: J,
+          weight: cgraph[I][J],
+        });
+      }
+    }
+  }
+
+  return [nodes, edges];
+}
+
+CongraphPlotter.prototype._config_threshold_chooser = function(chooser, label_elem, min_thresh, default_thresh) {
+  let self = this;
+  const all_edges = this._cy.edges();
+
+  let _update_thresh = function(new_thresh) {
+    d3.select(label_elem).text(Math.round(100*new_thresh) + '%');
+    all_edges.restore();
+    const bad = all_edges.filter(E => E.data().weight < new_thresh);
+    bad.remove();
+    self._run_layout();
+  };
+  _update_thresh(default_thresh);
+
+  d3.select(chooser)
+    .attr('min', min_thresh)
+    .attr('max', 1.0)
+    .attr('step', 0.01)
+    .attr('value', default_thresh)
+    .on('change', function(d) {
+      const threshold = this.value;
+      _update_thresh(threshold);
+    });
+}
+
+CongraphPlotter.prototype._config_layout_chooser = function(chooser) {
+  var self = this;
+
+  chooser = d3.select(chooser);
+  for(const layout of Object.keys(this._layout_options).sort()) {
+    const option = chooser.insert('option').text(layout);
+    if(layout == this._default_layout) {
+      option.attr('selected', 'selected');
+    }
+  }
+
+  chooser.on('change', function(d) {
+    const new_layout = this.value;
+    self._layout = new_layout;
+    self._run_layout();
+  });
+}
+
+CongraphPlotter.prototype._config_exporters = function(svg_sel, png_sel) {
+  let self = this;
+  d3.select(svg_sel).on('click', function(d) {
+    let svg = self._cy.svg();
+    let blob = new Blob([svg], {type:"image/svg+xml;charset=utf-8"})
+    saveAs(blob, 'congraph.svg');
+  });
+  d3.select(png_sel).on('click', function(d) {
+    let blob = self._cy.png({
+      output: 'blob',
+      scale: 5,
+    });
+    saveAs(blob, 'congraph.png');
+  });
+}
+
+CongraphPlotter.prototype._config_edge_weight_display = function() {
+  // See https://stackoverflow.com/a/54556015
+  // and https://cytoscape.org/cytoscape.js-popper/demo-tippy.html
+  this._cy.edges().forEach(function(edge) {
+    var ref = edge.popperRef();
+    const dummy = document.createElement('div');
+
+    edge.tip = tippy(dummy, {
+      onCreate: function(inst) {
+        inst.popperInstance.reference = ref;
+      },
+      lazy: false,
+      trigger: 'manual',
+      content: () => {
+        const content = document.createElement('div');
+        content.innerHTML = Math.round(100*edge.data().weight) + '%';
+        return content;
+      },
+    });
+  });
+
+  this._cy.edges().bind('mouseover', (evt) => evt.target.tip.show());
+  this._cy.edges().bind('mouseout',  (evt) => evt.target.tip.hide());
+}
+
+CongraphPlotter.prototype._draw = function(nodes, edges, container) {
+  let self = this;
+  this._cy = cytoscape({
+    container: document.querySelector(container),
+    wheelSensitivity: 0.1,
+    userZoomingEnabled: true,
+    style: [{
+      selector: 'node',
+      style: {
+        'background-color': '#428bca',
+        'color': '#fff',
+        'label': 'data(id)',
+        'text-valign': 'center',
+      },
+    }, {
+      selector: 'edge',
+      style: {
+        'width': 'data(thickness)',
+        'opacity': 'data(opacity)',
+        'line-color': '#000',
+        'target-arrow-color': '#000',
+        'target-arrow-shape': 'triangle',
+        // Necessary to allow arrowheads
+        'curve-style': 'bezier',
+      },
+    }],
+  });
+
+  nodes.forEach(node => {
+    self._cy.add({
+      group: 'nodes',
+      data: { id: node.id },
+    });
+  });
+  edges.forEach(edge => {
+    const maxwt = 8;
+    const minwt = 0.5;
+    const max_opacity = 1.0;
+    const min_opacity = 0.1;
+
+    self._cy.add({
+      group: 'edges',
+      data: {
+        id: edge.source + '_' + edge.target,
+        source: edge.source,
+        target: edge.target,
+        weight: edge.weight,
+        thickness: edge.weight*(maxwt - minwt) + minwt,
+        opacity: edge.weight*(max_opacity - min_opacity) + min_opacity,
+      },
+    });
+  });
+
+  this._run_layout();
+}
+
+CongraphPlotter.prototype._run_layout = function() {
+  this._cy.layout(this._layout_options[this._layout]).run();
+}
+</script>
+<script type="text/javascript">function Util() {
+}
+
+Util.sort_ints = function(arr) {
+  var converted = arr.map(function(a) {
+    return parseInt(a, 10);
+  });
+  return converted.sort();
+}
+
+Util.hex2rgb = function(colour) {
+  return {
+    r: parseInt(colour.substring(1, 3), 16),
+    g: parseInt(colour.substring(3, 5), 16),
+    b: parseInt(colour.substring(5, 7), 16)
+  };
+}
+
+Util.blend_colours = function(base_colour, alpha, bgcolour) {
+  base_colour = Util.hex2rgb(base_colour);
+  bgcolour = Util.hex2rgb(bgcolour);
+
+  var rgb = {};
+  Object.keys(base_colour).forEach(function(channel) {
+    rgb[channel] = Math.round(alpha*base_colour[channel] + (1 - alpha)*bgcolour[channel]);
+    rgb[channel] = rgb[channel].toString(16).padStart(2, "0");
+  });
+  var hex = '#' + rgb.r + rgb.g + rgb.b;
+  return hex;
+}
+
+Util.transpose = function(mat) {
+  let M = mat.length;
+  let N = mat[0].length;
+  let T = [];
+
+  for(let n = 0; n < N; n++) {
+    T.push([]);
+    for(let m = 0; m < M; m++) {
+      T[n].push(mat[m][n]);
+    }
+  }
+  return T;
+}
+
+Util.find_clonal = function(parents) {
+  let clonal = [];
+  for(var idx = 0; idx < parents.length; idx++) {
+    if(parents[idx] === 0) {
+      clonal.push(idx + 1);
+    }
+  }
+  return new Set(clonal);
+}
+
+Util.calc_ccf = function(phi, parents) {
+  let S = phi[0].length;
+  let clonal = Util.find_clonal(parents);
+  let clonal_phi = [];
+
+  for(let sidx = 0; sidx < S; sidx++) {
+    clonal_phi.push(0);
+    clonal.forEach(cidx => clonal_phi[sidx] += phi[cidx][sidx]);
+    console.assert(clonal_phi[sidx] <= 1);
+  }
+
+  let ccf = phi.slice(1).map(P_k => {
+    return P_k.map((P_ks, sidx) => P_ks / clonal_phi[sidx]);
+  });
+
+  return ccf;
+}
+
+
+function ColourAssigner() {
+}
+
+ColourAssigner._assign_from_palette = function(num_colours, scale_name) {
+  let scales = {
+    tableau10: d3.schemeTableau10,
+    dark24: ['#2E91E5', '#E15F99', '#1CA71C', '#FB0D0D', '#DA16FF', '#222A2A', '#B68100', '#750D86', '#EB663B', '#511CFB', '#00A08B', '#FB00D1', '#FC0080', '#B2828D', '#6C7C32', '#778AAE', '#862A16', '#A777F1', '#620042', '#1616A7', '#DA60CA', '#6C4516', '#0D2A63', '#AF0038'],
+    alphabet: ['#2E91E5', '#E15F99', '#1CA71C', '#FB0D0D', '#DA16FF', '#222A2A', '#B68100', '#750D86', '#EB663B', '#511CFB', '#00A08B', '#FB00D1', '#FC0080', '#B2828D', '#6C7C32', '#778AAE', '#862A16', '#A777F1', '#620042', '#1616A7', '#DA60CA', '#6C4516', '#0D2A63', '#AF0038'],
+  };
+  let scale = scale_name ? scales[scale_name] : scales.tableau10;
+
+  var colours = [];
+  // Start at cidx=1 rather than cidx=0 to keep colouring of phi matrix
+  // consistent with what it was in past versions.
+  for(var cidx = 1; colours.length < num_colours; cidx++) {
+    if(cidx === scale.length) {
+      cidx = 0;
+    }
+    colours.push(scale[cidx]);
+  }
+  return colours;
+}
+
+ColourAssigner._assign_from_husl = function(N) {
+  let colours = [];
+  let first_hue = 0.01;
+  for(let idx = 0; idx < N; idx++) {
+    let hue = 360*(first_hue + ((idx+1)/N)*(1 - first_hue));
+    // Docs: https://github.com/hsluv/hsluv/tree/master/javascript
+    colours.push(hsluv.hsluvToHex([hue, 66, 56]));
+  }
+  shuffle(colours);
+  return colours;
+}
+
+ColourAssigner.assign_colours = function(N, use_husl=false) {
+  if(use_husl) {
+    return ColourAssigner._assign_from_husl(N);
+  } else {
+    return ColourAssigner._assign_from_palette(N);
+  }
+}
+
+function shuffle(array) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+}
+
+function resize_svg(elems) {
+  elems.nodes().forEach(function(svg) {
+    var box = svg.getBBox();
+    // Padding is necessary, as `getBBox` doesn't account for borders around
+    // nodes -- these would otherwise be clipped off.
+    var padding = 6;
+    var viewbox = [box.x - 0.5*padding, box.y - 0.5*padding, box.width + padding, box.height + padding];
+    svg.setAttribute('viewBox', viewbox.join(' '));
+    svg.setAttribute('width', viewbox[2]);
+    svg.setAttribute('height', viewbox[3]);
+  });
+}
+</script>
+<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css">
+<style type="text/css">.population path {
+  stroke-width: 1.5px;
+}
+
+.population .outline {
+  fill: none;
+  stroke: #000;
+  stroke-width: 2px;
+}
+
+.population {
+  cursor: pointer;
+}
+
+.divider {
+  stroke: #aaa;
+  stroke-width: 2px;
+  stroke-dasharray: 5, 5;
+}
+
+.population text {
+  font-size: 1.8em;
+  font-weight: 900;
+  font-family: sans-serif;
+  paint-order: stroke;
+
+  /* White text with black outline */
+  stroke: #0a0a0a;
+  fill: #fff;
+  stroke-width: 6px;
+
+}
+
+.population text.nooutline {
+  /* Black text */
+  stroke: none;
+  fill: #000;
+}
+
+.link {
+  fill: none;
+  stroke: #383838;
+  stroke-width: 1.5px;
+}
+
+#arrowhead {
+  fill: #383838;
+}
+</style>
+</head><body><main role="main" class="container">
+<h1>M50_N200_K50_fpr0.0001_adr0.2_seed1000</h1>
+
+  <h2>Consensus graph</h2>
+  <h5>Minimum spanning-tree threshold: <span id="spanning_threshold"></span></h5>
+  <form>
+    <div class="row">
+      <div class="col">
+        <label for="threshold_chooser">Edge threshold: <span id="congraph_threshold"></span></label>
+        <input type="range" id="threshold_chooser" class="form-control-range">
+      </div>
+
+      <div class="col">
+        <label for="layout_chooser">Layout</label>
+        <select class="form-control" id="layout_chooser">
+        </select>
+      </div>
+
+      <div class="col">
+        <label>Export graph</label>
+        <div id="exporters">
+          <button id="export_svg" type="button" class="btn btn-primary">Export SVG</button>
+          <button id="export_png" type="button" class="btn btn-primary">Export PNG</button>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  <style type="text/css">
+  #congraph { width: 100%; height: 400px; }
+  </style>
+  <div id="congraph" class="row"></div>
+
+  <script type="text/javascript">
+  var congraph_json = '[[0.0, 0.9746588147498789, 0.02534118525012171, 0.0, 0.9998969960623646, 0.00010300393763499878, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.7735548837162177e-09, 3.5750340074306946e-08, 0.0, 0.0, 0.0, 0.9993775581000551, 0.0006224418999444599, 0.0, 0.0, 0.0, 0.0, 0.0, 1.1177454526309351e-11, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.9746588147498789, 0.023525174207143295, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.02534118525012171, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 9.598527887603379e-09, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.02534118525012171, 0.0, 0.0, 0.0, 0.0], [0.0, 0.02534118525012171, 0.0, 0.9555668401386628, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.9746588147498789, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.833899192522829e-08, 1.1950115393952062e-08, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.9746588147498789, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 6.17690211841463e-06, 3.534009099621271e-08, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.9998969960623646, 3.921019078770979e-05, 6.379374684728896e-05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.00010300393763499878, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.00010300393763499878, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 5.712591319161366e-08, 0.00010300393763499878, 0.0, 0.5181225875399444, 0.4817744085224209, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.9998969960623646, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.9998969960623646, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 1.892657723231476e-35, 0.0, 0.5181617977307325, 0.37089848100717226, 0.11093972126209593, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 7.956743275834359e-32, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.4818382022692682, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 3.519429242286107e-20, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.4818382022692682, 0.0, 0.44365542441334976, 0.07450637331738248, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.9743840893871287e-06, 2.668056530900208e-09, 0.5181617977307325, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0439961759051509e-19, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.8145539054205213, 0.18544609457947844, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0772220258636378e-06, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.18544609457947844, 0.0, 0.8145539054205213, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.199775257122332e-07, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 7.682087164469068e-06, 0.0, 0.0, 0.0, 0.0, 0.0, 0.9990552563087807, 0.0009447436912196043, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.00657355366748244, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.9999999999999999, 0.0, 7.405647778317624e-08, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 7.138628496166421e-07, 1.850882375628158e-09, 0.0, 0.0, 0.9999999999999999, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.00017269724122399727, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.9999999999999999, 0.00016488937051385315, 0.0, 0.0, 0.0, 0.0, 0.9999999999999999, 0.0, 1.1190872115644393e-06, 3.1174952791252095e-09, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 8.282026123217115e-07, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.9836630937027252, 0.9999999999999999, 0.0, 0.0, 0.0, 0.0, 0.0, 2.64973220888307e-06, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 3.1697586492480743e-10, 2.1194791906887368e-08, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 2.2078765745079787e-09, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.016171942870283135, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.481853670885629e-06, 1.8487564969782992e-26, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.9999945960773108, 5.403922689118252e-06, 0.0, 0.0, 0.0, 3.079637480979281e-08, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 4.682780229850487e-12, 1.0319361190580152e-22, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.9999945960773108, 0.0, 0.0, 2.0431670558631115e-07, 4.5068125499062085e-10, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 4.712498906164831e-06, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 5.403922689118252e-06, 0.0, 0.0, 0.0, 2.352310523115779e-07, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.1558362751870305e-07, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 8.57099738590778e-07, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.9999999999999999, 3.569694134549966e-08, 2.6077922140111126e-26, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.9999999999999999, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.992147127157974, 0.9946810669607933, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 2.2815172230361064e-08, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.005318117891473766, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.007811984691786179, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.6303417459349058e-06, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.1290490027957144e-09, 0.0, 0.0, 0.9999999999999999, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.3963214752765962e-08, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 3.2907061989328276e-08, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.8420239029478436e-07, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 7.108963714654137e-09, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0012242201877757947, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 6.191583864497288e-07, 1.6557694082181473e-08, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 9.348365478490578e-06, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.1583456130041826e-06, 0.0, 0.0, 0.0, 0.0, 0.0, 0.9993775581000551, 0.0006224418999444599, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.4163219045894796e-08, 6.477870446108094e-08, 0.0, 0.0, 0.0, 0.0006224418999444599, 0.0, 0.9974570419148544, 0.0019205161852009695, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 8.776333019347044e-07, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.9980794838147992, 0.0011580513857652429, 0.0, 0.0007624647994357268, 0.0017426940805986486, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 8.012378908671221e-06, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0019205161852009695, 0.0, 0.23838830366356653, 0.0, 0.7596911801512327, 0.9806019236738008, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 8.123924750037207e-11, 5.811057514922102e-10, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.7999129733560518, 0.20011225863692633, 0.008854853145701076, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 5.818186146415647e-06, 6.439785197789128e-10, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.03943409641240544, 8.123709731962545e-07, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.7604536449506681, 0.20008702664394784, 0.0, 0.008785231200960971, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 3.002724329422456e-10, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 4.97926870618249e-06, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.9972083221171033, 0.0027916778828965807, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.9972083221171033, 0.0027916778828965807, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.2748491328985956e-09, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 3.166195345281586e-09, 0.0, 0.0027916778828965807, 0.0, 0.9972083221171033, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.4976965766471555e-11, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.9999999999999999, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 2.7206552801165025e-07, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.283890865577335e-06, 5.169884591509442e-25, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 4.836228468192433e-07, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.9673341466739728, 0.03258072947893453, 0.0, 8.512384709314571e-05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0009447436912196043, 0.0, 0.9628333602197711, 0.0, 0.03622189608900967, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 5.670532458375175e-08, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 9.422864532836333e-12, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.03163598578771494, 0.0, 0.004671034148387866, 0.9636929800638971, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 5.470670322706274e-11, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.629873396248649e-07, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.9924713001439432, 0.007528699856056666, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0493030772707127e-07, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 3.9649612805208727e-11, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 8.512384709314571e-05, 0.00458591030129472, 0.9953289658516119, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 7.887034773987024e-10, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.149705526014697e-06, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.9924713001439432, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 3.945157087412637e-10, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 6.861568821899074e-07, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.007528699856056666, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.012823213881010286, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 3.4502250797637147e-10, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 4.83268231028663e-10, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.9999999999999999, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 9.792762882964969e-05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 6.343670128896894e-10, 1.982733680266289e-07, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 8.637579318365431e-07, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 4.7876091457355385e-11, 6.332771694862043e-12, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 5.768947725382884e-07, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1616653620385597, 0.8383346379614398], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.1385900800252539e-06, 2.0569550447881446e-07, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 5.0257385676041805e-12, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1616653620385597], [0.0, 0.0, 0.0, 2.397048780774871e-07, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.4824128297775257e-09, 3.8917080005978834e-26, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.8383346379614398, 0.0]]';
+  var congraph = JSON.parse(congraph_json);
+  </script>
+  
+<script type="text/javascript">document.addEventListener("DOMContentLoaded", () => { (new CongraphPlotter()).plot(congraph, '#congraph', '#congraph_threshold'); });</script>
+<script type="text/javascript">var tree_json = '{"structs": [{"phi": -1, "eta": -1, "llh": -2568.4538531012045, "nlglh": -1, "prob": 0.354447619066702, "count": 97, "parents": [0, 1, 2, 0, 4, 5, 6, 7, 8, 9, 2, 11, 12, 13, 13, 5, 16, 17, 12, 19, 20, 20, 7, 23, 11, 0, 26, 27, 28, 32, 30, 29, 29, 5, 34, 35, 36, 37, 10, 39, 40, 43, 41, 42, 44, 2, 46, 19, 50, 48], "samples": ["no sample names in sc_pairtree"]}, {"phi": -1, "eta": -1, "llh": -2568.6819353648984, "nlglh": -1, "prob": 0.1134462298608539, "count": 39, "parents": [0, 1, 2, 0, 4, 7, 5, 6, 8, 9, 2, 11, 12, 13, 13, 5, 16, 17, 12, 19, 20, 20, 6, 23, 11, 0, 26, 27, 28, 32, 30, 29, 29, 5, 34, 35, 36, 37, 10, 39, 40, 43, 41, 42, 44, 2, 46, 19, 50, 48], "samples": ["no sample names in sc_pairtree"]}, {"phi": -1, "eta": -1, "llh": -2569.259602744485, "nlglh": -1, "prob": 0.09305132485339583, "count": 57, "parents": [0, 1, 2, 0, 4, 7, 5, 6, 8, 9, 2, 11, 12, 13, 13, 5, 16, 17, 12, 19, 20, 20, 6, 23, 11, 0, 26, 27, 28, 29, 32, 30, 29, 5, 34, 35, 36, 37, 10, 39, 40, 43, 41, 42, 44, 2, 46, 19, 50, 48], "samples": ["no sample names in sc_pairtree"]}, {"phi": -1, "eta": -1, "llh": -2569.321334937906, "nlglh": -1, "prob": 0.06906376785203797, "count": 45, "parents": [0, 1, 2, 0, 4, 7, 5, 6, 8, 9, 2, 11, 12, 13, 13, 5, 16, 17, 12, 19, 20, 20, 6, 23, 11, 0, 26, 27, 28, 32, 30, 29, 29, 5, 34, 35, 36, 37, 10, 39, 40, 43, 41, 42, 44, 2, 46, 19, 48, 49], "samples": ["no sample names in sc_pairtree"]}, {"phi": -1, "eta": -1, "llh": -2569.978257457968, "nlglh": -1, "prob": 0.06445030066236981, "count": 81, "parents": [0, 1, 2, 0, 4, 7, 5, 9, 6, 8, 2, 11, 12, 13, 13, 5, 16, 17, 12, 19, 20, 20, 6, 23, 11, 0, 26, 27, 28, 32, 30, 29, 29, 5, 34, 35, 36, 37, 10, 39, 40, 43, 41, 42, 44, 2, 46, 19, 50, 48], "samples": ["no sample names in sc_pairtree"]}, {"phi": -1, "eta": -1, "llh": -2570.3805481245868, "nlglh": -1, "prob": 0.04363562135724605, "count": 82, "parents": [0, 1, 2, 0, 4, 5, 6, 9, 7, 8, 2, 11, 12, 13, 13, 5, 16, 17, 12, 19, 20, 20, 7, 23, 11, 0, 26, 27, 28, 32, 30, 29, 29, 5, 34, 35, 36, 37, 10, 39, 40, 43, 41, 42, 44, 2, 46, 19, 48, 49], "samples": ["no sample names in sc_pairtree"]}, {"phi": -1, "eta": -1, "llh": -2570.5559248375544, "nlglh": -1, "prob": 0.03170447180077816, "count": 71, "parents": [0, 1, 2, 0, 4, 7, 5, 9, 6, 8, 2, 11, 12, 13, 13, 5, 16, 17, 12, 19, 20, 20, 6, 23, 11, 0, 26, 27, 28, 29, 32, 30, 29, 5, 34, 35, 36, 37, 10, 39, 40, 43, 41, 42, 44, 2, 46, 19, 50, 48], "samples": ["no sample names in sc_pairtree"]}, {"phi": -1, "eta": -1, "llh": -2569.986872533348, "nlglh": -1, "prob": 0.027610005519720534, "count": 35, "parents": [0, 1, 2, 0, 4, 5, 6, 7, 8, 9, 2, 11, 12, 13, 13, 5, 16, 17, 12, 19, 20, 20, 7, 23, 11, 0, 26, 27, 28, 29, 30, 31, 29, 5, 34, 35, 36, 37, 10, 39, 40, 43, 41, 42, 44, 2, 46, 19, 50, 48], "samples": ["no sample names in sc_pairtree"]}, {"phi": -1, "eta": -1, "llh": -2569.8990023170863, "nlglh": -1, "prob": 0.02756195234475152, "count": 32, "parents": [0, 1, 2, 0, 4, 7, 5, 6, 8, 9, 2, 11, 12, 13, 13, 5, 16, 17, 12, 19, 20, 20, 6, 23, 11, 0, 26, 27, 28, 29, 32, 30, 29, 5, 34, 35, 36, 37, 10, 39, 40, 43, 41, 42, 44, 2, 46, 19, 48, 49], "samples": ["no sample names in sc_pairtree"]}, {"phi": -1, "eta": -1, "llh": -2569.7411485519597, "nlglh": -1, "prob": 0.02521477092523302, "count": 25, "parents": [0, 1, 2, 0, 4, 5, 6, 9, 7, 8, 2, 11, 12, 13, 13, 5, 16, 17, 12, 19, 20, 20, 7, 23, 11, 0, 26, 27, 28, 32, 30, 29, 29, 5, 34, 35, 36, 37, 10, 39, 40, 43, 41, 42, 44, 2, 46, 19, 50, 48], "samples": ["no sample names in sc_pairtree"]}, {"phi": -1, "eta": -1, "llh": -2569.031520480791, "nlglh": -1, "prob": 0.020507020889409838, "count": 10, "parents": [0, 1, 2, 0, 4, 5, 6, 7, 8, 9, 2, 11, 12, 13, 13, 5, 16, 17, 12, 19, 20, 20, 7, 23, 11, 0, 26, 27, 28, 29, 32, 30, 29, 5, 34, 35, 36, 37, 10, 39, 40, 43, 41, 42, 44, 2, 46, 19, 50, 48], "samples": ["no sample names in sc_pairtree"]}, {"phi": -1, "eta": -1, "llh": -2571.324913186033, "nlglh": -1, "prob": 0.015522298844678283, "count": 75, "parents": [2, 0, 1, 0, 4, 7, 5, 6, 8, 9, 1, 11, 12, 13, 13, 5, 16, 17, 12, 19, 20, 20, 6, 23, 11, 0, 26, 27, 28, 32, 30, 29, 29, 5, 34, 35, 36, 37, 10, 39, 40, 43, 41, 42, 44, 1, 46, 19, 50, 48], "samples": ["no sample names in sc_pairtree"]}, {"phi": -1, "eta": -1, "llh": -2570.81078900879, "nlglh": -1, "prob": 0.013497106579893193, "count": 39, "parents": [0, 1, 2, 0, 4, 5, 6, 7, 8, 9, 2, 11, 12, 13, 13, 5, 16, 17, 12, 19, 20, 20, 7, 23, 11, 0, 26, 27, 28, 32, 30, 29, 29, 5, 34, 35, 36, 37, 10, 41, 39, 43, 40, 42, 44, 2, 46, 19, 50, 48], "samples": ["no sample names in sc_pairtree"]}, {"phi": -1, "eta": -1, "llh": -2571.03886505843, "nlglh": -1, "prob": 0.006612034975438066, "count": 24, "parents": [0, 1, 2, 0, 4, 7, 5, 6, 8, 9, 2, 11, 12, 13, 13, 5, 16, 17, 12, 19, 20, 20, 6, 23, 11, 0, 26, 27, 28, 32, 30, 29, 29, 5, 34, 35, 36, 37, 10, 41, 39, 43, 40, 42, 44, 2, 46, 19, 50, 48], "samples": ["no sample names in sc_pairtree"]}, {"phi": -1, "eta": -1, "llh": -2571.5112768901117, "nlglh": -1, "prob": 0.005153227354976797, "count": 30, "parents": [0, 1, 2, 0, 4, 7, 5, 9, 6, 8, 2, 11, 12, 13, 13, 5, 16, 17, 12, 19, 20, 20, 6, 23, 11, 0, 26, 27, 28, 29, 30, 31, 29, 5, 34, 35, 36, 37, 10, 39, 40, 43, 41, 42, 44, 2, 46, 19, 50, 48], "samples": ["no sample names in sc_pairtree"]}, {"phi": -1, "eta": -1, "llh": -2571.159157707543, "nlglh": -1, "prob": 0.005129803877263271, "count": 21, "parents": [0, 1, 2, 0, 4, 5, 6, 7, 8, 9, 2, 11, 12, 13, 13, 5, 16, 17, 12, 19, 20, 20, 7, 23, 11, 0, 26, 27, 28, 29, 32, 30, 30, 5, 34, 35, 36, 37, 10, 39, 40, 43, 41, 42, 44, 2, 46, 19, 50, 48], "samples": ["no sample names in sc_pairtree"]}, {"phi": -1, "eta": -1, "llh": -2570.7971416504633, "nlglh": -1, "prob": 0.004210021257811638, "count": 12, "parents": [0, 1, 2, 0, 4, 5, 6, 7, 8, 9, 2, 11, 12, 13, 13, 5, 16, 17, 12, 19, 22, 20, 7, 23, 11, 0, 26, 27, 28, 32, 30, 29, 29, 5, 34, 35, 36, 37, 10, 39, 40, 43, 41, 42, 44, 2, 46, 19, 50, 48], "samples": ["no sample names in sc_pairtree"]}, {"phi": -1, "eta": -1, "llh": -2570.431329127261, "nlglh": -1, "prob": 0.003540555796604517, "count": 7, "parents": [0, 1, 46, 0, 4, 5, 6, 7, 8, 9, 2, 11, 12, 13, 13, 5, 16, 17, 12, 19, 20, 20, 7, 23, 11, 0, 26, 27, 28, 32, 30, 29, 29, 5, 34, 35, 36, 37, 10, 39, 40, 43, 41, 42, 44, 2, 46, 19, 50, 48], "samples": ["no sample names in sc_pairtree"]}, {"phi": -1, "eta": -1, "llh": -2569.6709200530113, "nlglh": -1, "prob": 0.003245907374382246, "count": 3, "parents": [0, 1, 2, 0, 4, 5, 6, 7, 8, 9, 2, 11, 12, 13, 13, 5, 16, 17, 12, 19, 20, 20, 7, 23, 11, 0, 26, 27, 28, 29, 32, 30, 29, 5, 34, 35, 36, 37, 10, 39, 40, 43, 41, 42, 44, 2, 46, 19, 48, 49], "samples": ["no sample names in sc_pairtree"]}, {"phi": -1, "eta": -1, "llh": -2571.4642618750768, "nlglh": -1, "prob": 0.003240775265113017, "count": 18, "parents": [0, 1, 2, 0, 4, 7, 5, 6, 8, 9, 2, 11, 12, 13, 13, 5, 16, 17, 12, 19, 20, 20, 6, 23, 11, 0, 26, 27, 28, 32, 30, 29, 32, 5, 34, 35, 36, 37, 10, 39, 40, 43, 41, 42, 44, 2, 46, 19, 48, 49], "samples": ["no sample names in sc_pairtree"]}], "samp_colours": null}'; var results = JSON.parse(tree_json);</script>
+<h2>Trees</h2>
+<ul><li>Number of unique trees: 501</li></ul>
+<table id="trees" class="table table-striped"><thead><tr><th>Index</th><th>Posterior</th><th>nLgLh</th><th>Count</th><th>Structure</th></tr></thead><tbody class="container"></tbody></table>
+<script type="text/javascript">document.addEventListener("DOMContentLoaded", () => { (new PosteriorSumm()).plot(results, '#trees .container'); });</script>
+</main></body></html>
