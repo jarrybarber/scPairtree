@@ -1,34 +1,23 @@
 import numpy as np
-from scipy.linalg import block_diag
-import random
-import os
-import sys
-import argparse
-from util import DATA_DIR
 from tree_util import convert_adjmatrix_to_ancmatrix
 from pairs_tensor_util import p_data_given_truth_and_errors
 from common import DataRange, DataRangeIdx
 
 
-def _save_data(data,real_tree_info):
-    #Can do this one later when I feel like it.
-    #Will have to set an output location and save all of the input parameters as well.
-    return
-
-def _apply_errors(real_data,FPR,ADO):
+def _apply_errors(real_data,FPR,ADR):
     # Here, FPR corresponds to the false positive rate on one of the alleles of a locus.
     # This could mean that two false positives could occur, and still get just the one FP
-    # Additionally, ADO corresponds to just one allele dropping out. Doesn't necessarily mean
+    # Additionally, ADR corresponds to just one allele dropping out. Doesn't necessarily mean
     # a false negative will occur. Also, assuming a diploid cell, the full locus dropout 
-    # will be ADO^2
+    # will be ADR^2
 
     #Start off with most complex data, then reduce complexity if user asks for it.
     d_rng_i = DataRangeIdx.ref_hetvar_homvar_nodata
     r_rng = DataRange[d_rng_i] #[0,1,2,3]
 
     data = np.zeros(real_data.shape, dtype=int)
-    ps_gt0 = [p_data_given_truth_and_errors(d,0,FPR,ADO,d_rng_i) for d in r_rng]
-    ps_gt1 = [p_data_given_truth_and_errors(d,1,FPR,ADO,d_rng_i) for d in r_rng]
+    ps_gt0 = [p_data_given_truth_and_errors(d,0,FPR,ADR,d_rng_i) for d in r_rng]
+    ps_gt1 = [p_data_given_truth_and_errors(d,1,FPR,ADR,d_rng_i) for d in r_rng]
     data = data + np.multiply((real_data==0).astype(int), np.random.choice(r_rng, data.shape, p=ps_gt0))
     data = data + np.multiply((real_data==1).astype(int), np.random.choice(r_rng, data.shape, p=ps_gt1))
 
@@ -96,64 +85,10 @@ def generate_simulated_data(n_clust, n_cell, n_mut, FPR, ADR, cell_alpha, mut_al
     data = _put_data_in_drange_format(data,drange)
     return data, (real_data, adj_mat, cell_assignments, mut_assignments)
 
-def get_args():
-    parser = argparse.ArgumentParser(
-        description='Simulate single-cell tumour data.',
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-    parser.add_argument('--seed', dest='seed', type=int, default=np.random.randint(2**32),
-        help='Integer seed used for pseudo-random number generator.')
-    parser.add_argument('--name', dest='name', type=str, default=None,
-        help='(Optional) The name of the tree being created')
-    parser.add_argument('K', dest='n_clust', type=int, default=30,
-        help='Number of subclones to simulate.')
-    parser.add_argument('C', dest='n_cells', type=int, default=10,
-        help='Number of cells per subclone.')
-    parser.add_argument('M', dest='n_muts', type=int, default=10,
-        help='Number of mutations per subclone.')
-    parser.add_argument('A', dest='ADO', type=float, default=0.5,
-        help='Allelic dropout rate.')
-    parser.add_argument('P', dest='FPR', type=float, default=0.005,
-        help='False positive rate.')
-    parser.add_argument('--data-range', dest='d_rng_id', type=int, default=1,
-        help='Data range id. There are 3 options: (0: [0,1]; 1: [0,1,3]; 2: [1,2,3])')
-    parser.add_argument('--cell-alpha', dest='cell_alpha', type=float, default=0.5,
-        help='Dirichlet distribution parameter for distributing cells to the clusters.')
-    parser.add_argument('--mut-alpha', dest='mut_alpha', type=float, default=1.,
-        help='Dirichlet distribution parameter for distributing mutations to the clusters.')
-    parser.add_argument('--sim-isav', dest='ISAs', action='store_true',
-        help='Whether or not to simualate ISA violations.')
-    parser.add_argument('--save-data', dest='save_data', action='store_true',
-        help='Whether or not to save the data. If true nothing will be returned.')
-
-    args = parser.parse_args()
-    return args
-
 
 def main():
-    args = get_args()
-
-    np.random.seed(args.seed)
-    random.seed(args.seed)
-
-    data, real_tree_info = generate_simulated_data(
-        args.n_clust,
-        args.n_cells,
-        args.n_muts,
-        args.FPR,
-        args.ADO,
-        args.cell_alpha,
-        args.mut_alpha,
-        args.d_rng_id
-        )
-
-    if args.save_data:
-        _save_data(data,real_tree_info)
-        return
-    else:
-        return data
-
-
+    print("data_simulator is not callable by itself")
+    pass
 
 
 if __name__ == "__main__":
