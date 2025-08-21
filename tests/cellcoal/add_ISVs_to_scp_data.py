@@ -1,8 +1,11 @@
 import numpy as np
 import os, sys, shutil
+from dataset_info import get_dataset_params
+from scpeval_common import DATA_DIR
 sys.path.append(os.path.abspath('../../lib'))
 from util import find_first
 from pairs_tensor_util import p_data_given_truth_and_errors
+
 
 
 def _calc_phis(true_data, mut_clst_ass):
@@ -45,6 +48,7 @@ def select_violation_mut_and_target_node(mut_clst_ass, cell_clst_ass, clust_anc_
     target_is_anc_of_isv_mut = clust_anc_mat[target_node, isv_node]==1
     targ_phi_gt_isv_node_phi = phis[target_node-1] > phis[isv_node-1]
 
+    # print(isv_node_too_small, isv_node_has_no_cells, target_is_anc_of_isv_mut, targ_phi_gt_isv_node_phi)
     if isv_node_too_small or \
       isv_node_has_no_cells or \
       target_is_anc_of_isv_mut or \
@@ -145,21 +149,29 @@ def make_ISV_data_for_given_dataset(data_dir, fpr, adr):
 
 def main():
 
-    dataset = "s4"
-    n_muts = [50]# [20, 50, 100]
-    n_cells = [200]
-    fprs = [0.0001, 0.01]
-    adrs = [0.1, 0.5]
-    reps = np.arange(1,20+1)
+    # dataset = "s4"
+    # n_muts = [50]# [20, 50, 100]
+    # n_cells = [200]
+    # fprs = [0.0001, 0.01]
+    # adrs = [0.1, 0.5]
+    # reps = np.arange(1,20+1)
+
+    #Trying out just reusing the doublet data so that can use the same dataset to modify and compare against
+    #otherwise dataset was 's4' before.
+    dataset = 's5'
+    n_muts, n_cells, fprs, adrs, reps = get_dataset_params(dataset, expand_params=False) 
+
 
     for n_mut in n_muts:
         for n_cell in n_cells:
             for fpr in fprs:
                 for adr in adrs:
                     for rep in reps:
+                        # if rep==1:
+                        #     continue
                         print(n_mut, n_cell, fpr, adr, rep)
                         paramset_fn = "m{}_c{}_fp{}_ad{}".format(n_mut,n_cell,fpr,adr)
-                        data_dir = os.path.join(".", 'data', dataset, 'scp_input', paramset_fn, 'rep'+str(rep))
+                        data_dir = os.path.join(DATA_DIR, dataset, 'scp_input', paramset_fn, 'rep'+str(rep))
                         make_ISV_data_for_given_dataset(data_dir, fpr, adr)
     return
 

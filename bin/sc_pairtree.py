@@ -68,10 +68,10 @@ def _parse_args():
         help='(Optional) Perform direct-from-pairs-tensor sampling. These can be used with importance sampling to estimate a consensus graph or other parameters.')
     parser.add_argument('--dfpt-nsamples', dest='dfpt_nsamples',  type=int, default=100000,
         help='(Optional) The number of samples to take when doing dfpt sampling.')
-    # parser.add_argument('--only-build-tensor', dest='only_build_tensor', action='store_true',
-    #     help='Exit after building pairwise relations tensor, without sampling any trees.')
-    # parser.add_argument('--disable-posterior-sort', dest='sort_by_llh', action='store_false',
-    #     help='Disable sorting posterior tree samples by descending probability, and instead list them in the order they were sampled')
+    parser.add_argument('--only-estimate-errors', dest='only_estimate_errors', action='store_true',
+        help='Exit after estimating error rates, without building pairwise relations tensor or sampling  trees.')
+    parser.add_argument('--only-build-tensor', dest='only_build_tensor', action='store_true',
+        help='Exit after building pairwise relations tensor, without sampling any trees.')
     parser.add_argument('--mut-id-fn', dest='mut_id_fn', type=str, default=None,
         help='Name of file containing identifiers for each mutation.')
     
@@ -93,7 +93,10 @@ def _get_default_args(args):
     if (args.fpr is not None) or (args.adr is not None):
         if np.logical_xor((args.fpr is None), (args.adr is None)):
             raise Exception("Currently, scPairtree requires either both error rates to be set or neither to be set. Please set both:\n - --adr\n - --fpr")
-        
+    
+    if args.only_estimate_errors and args.only_build_tensor:
+        raise Exception("Both --only-estimate-errors and --only-build-tensor cannot both be set at the same time.")
+
     # Note that multiprocessing.cpu_count() returns number of logical cores, so
     # if you're using a hyperthreaded CPU, this will be more than the number of
     # physical cores you have.
@@ -130,7 +133,7 @@ def _get_default_args(args):
     return parallel, tree_chains, seed, d_rng_i, convergence_options
 
 
-def run(data, d_rng_i, variable_adr, n_clust_iter, clust_dir_alpha, trees_per_chain, burnin, tree_chains, thinned_frac, seed, parallel, convergence_options, perform_dftp, dfpt_nsamples, res, fpr=[], adr=[], skip_clustering=False):
+def run(data, d_rng_i, variable_adr, n_clust_iter, clust_dir_alpha, trees_per_chain, burnin, tree_chains, thinned_frac, seed, parallel, convergence_options, perform_dftp, dfpt_nsamples, res, fpr=[], adr=[], skip_clustering=False, only_est_errs = False, only_build_tensor = False):
     assert len(data.shape) == 2
 
     ### ESTIMATE THE ERROR RATES ###
@@ -154,6 +157,9 @@ def run(data, d_rng_i, variable_adr, n_clust_iter, clust_dir_alpha, trees_per_ch
         res.add("est_ADOs", adr)
         res.add("est_mut_phis", est_mut_phis)
         res.save()
+    
+    if only_est_errs:
+        return
     
     ### CLUSTER MUTATIONS ###
     if res.has("mutation_cluster_assignments"):
@@ -179,6 +185,9 @@ def run(data, d_rng_i, variable_adr, n_clust_iter, clust_dir_alpha, trees_per_ch
         res.add("pairs_tensor_runtime", time.time()-s)
         res.add("pairs_tensor", pairs_tensor)
         res.save()
+    
+    if only_build_tensor:
+        return
 
     ### SAMPLE TREES ###
     if res.has("adj_mats"):
@@ -231,14 +240,15 @@ def run(data, d_rng_i, variable_adr, n_clust_iter, clust_dir_alpha, trees_per_ch
         else:
             print("Performing direct-from-pairs-tensor sampling...")
             s = time.time()
-            dfpt_samples, dfpt_sample_probs = tree_sampler_DFPT.sample_trees(pairs_tensor,dfpt_nsamples)
+            dfpt_samples, dfpt_sample_log_probs = tree_sampler_DFPT.sample_trees(pairs_tensor,dfpt_nsamples,parallel=parallel)
             # unique_samples, uniq_post, uniq_qs = dfpt_sampler.calc_uniq_samples_with_IS_posterior_prob(dfpt_samples, dfpt_sample_probs, data, fpr, adr, mutation_cluster_assignments, d_rng_i)
             log_posts = tree_sampler_DFPT.calc_sample_posts(dfpt_samples, dfpt_sample_probs, data, fpr, adr, mutation_cluster_assignments, d_rng_i)
             IS_adj_mat = tree_sampler_DFPT.calc_IS_adj_mat(dfpt_samples, log_posts, dfpt_sample_probs)
             IS_anc_mat = tree_sampler_DFPT.calc_IS_anc_mat(dfpt_samples, log_posts, dfpt_sample_probs)
             res.add("dfpt_time", time.time() - s)
             res.add("dfpt_samples", dfpt_samples)
-            res.add("dfpt_sample_probs", dfpt_sample_probs)
+            res.add("dfpt_sample_log_probs", dfpt_sample_log_probs)
+            res.add("dfpt_sample_log_posteriors",log_posts)
             res.add("dfpt_IS_adj_mat", IS_adj_mat)
             res.add("dfpt_IS_anc_mat", IS_anc_mat)
             res.save()
@@ -260,6 +270,8 @@ def main():
         d = vars(args)
         old_args = res.get("scp_args")
         for k,v in old_args.items():
+            if k=="perform_dfpt_sampling": #Don't save this value so that can run scPairtree again in the future to just perform DFPT, without having to redo the whole thing
+                continue
             d[k] = v
     else:
         ### SET DEFAULT ARGUMENTS ###
@@ -314,7 +326,9 @@ def main():
         res = res,
         fpr = args.fpr,
         adr = args.adr,
-        skip_clustering = args.skip_clustering
+        skip_clustering = args.skip_clustering,
+        only_est_errs = args.only_estimate_errors,
+        only_build_tensor = args.only_build_tensor
         )
         
 

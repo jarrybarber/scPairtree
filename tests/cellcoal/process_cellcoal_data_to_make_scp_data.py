@@ -1,6 +1,8 @@
 import numpy as np
 import sys, os
 import scipy.special
+from scpeval_common import DATA_DIR
+
 sys.path.append(os.path.abspath('../../lib'))
 from util import determine_mutation_pair_occurance_counts, find_first
 import random
@@ -185,7 +187,7 @@ def subset_viable_snvs(snv_data, true_data, snv_locations, n_cell, n_mut, min_nc
         #Note, let's not remove cells if they "don't have enough support". If we did, then might
         #be getting rid of entire clones that are just near the root of the tree
 
-        max_tries = 20000
+        max_tries = 10000
         max_clonal_mut_prop = 0.25
         total_n_snv, total_n_cell = snv_data.shape
         #Sample muts and cells
@@ -284,86 +286,84 @@ def main():
     genome_size = 10000
 
     #Single test
-    # cellcoal_res_dir = os.path.abspath("./data/test/ccres")
-    # scp_input_dir = os.path.abspath("./data/test/scp_input")
+    # dset_name = "test"
     # n_muts = [10]
     # n_cells = [50]
     # FPRs = [0.01]
     # ADOs = [0.75]
     # reps_2_use = [1]
     #initial test set
-    # cellcoal_res_dir = os.path.abspath("./data/test/ccres")
-    # scp_input_dir = os.path.abspath("./data/test/scp_input")
+    # dset_name = "test"
     # n_muts = [50]#[10, 25, 50]
     # n_cells = [50, 250, 1000]
     # FPRs = [0.0001, 0.01]
     # ADOs = [0.25, 0.5, 0.75]
     # reps_2_use = np.arange(1,5+1)
     # reps_2_use = [4]
-    #Sim 1a: different dataset sizes - normalish range
-    # cellcoal_res_dir = os.path.abspath("./data/s1/ccres")
-    # scp_input_dir = os.path.abspath("./data/s1/scp_input")
-    # n_muts = [50, 100, 200]
-    # n_cells = [50, 200, 1000]
+    #Sim 1: different dataset sizes - normalish range
+    # dset_name = "s1"
+    # n_muts = [50]#[50, 70, 100, 140, 200]
+    # n_cells = [50]#, 200, 1000]
     # FPRs = [0.0001]
-    # ADOs = [0.5]
-    # reps_2_use = np.arange(1,10+1)
-    #Sim 1b: different dataset sizes - large datasets
-    # cellcoal_res_dir = os.path.abspath("./data/s1/ccres")
-    # scp_input_dir = os.path.abspath("./data/s1/scp_input")
-    # n_muts = [300]
-    # n_cells = [10000]
-    # FPRs = [0.0001]
-    # ADOs = [0.5]
+    # ADRs = [0.5]
     # reps_2_use = np.arange(1,10+1)
     #Sim 2: diff global error rates
-    # cellcoal_res_dir = os.path.abspath("./data/s2/ccres")
-    # scp_input_dir = os.path.abspath("./data/s2/scp_input")
+    # dset_name = "s2"
     # n_muts = [100]
     # n_cells = [200]
     # FPRs = [0.0001, 0.01]
-    # ADOs = [0.1, 0.25, 0.5, 0.75]
-    # reps_2_use = np.arange(1,10+1)
-    #Sim 3: variable ADR
-    # cellcoal_res_dir = os.path.abspath("./data/s3/ccres")
-    # scp_input_dir = os.path.abspath("./data/s3/scp_input")
-    # n_muts = [100]
-    # # n_cells = [200, 500]
-    # n_cells = [500]
-    # FPRs = [0.01, 0.0001]
     # ADRs = [0.1, 0.25, 0.5, 0.75]
     # reps_2_use = np.arange(1,10+1)
-    # n_muts = [100]
-    # n_cells = [200]
-    # FPRs = [0.0001]
-    # ADRs = [0.75]
-    # reps_2_use = [9,10]
+    #Sim 3: variable ADR
+    # dset_name = "s3"
+    # # n_muts = [50, 100]
+    # # n_cells = [200, 500]
+    # # FPRs = [0.0001, 0.01]
+    # # ADRs = [0.1, 0.25, 0.5, 0.75]
+    # # reps_2_use = np.arange(1,10+1)
+    # n_muts = [50]
+    # n_cells = [200, 500]
+    # FPRs = [0.0001, 0.01]
+    # ADRs = [0.1, 0.25, 0.5, 0.75]
+    # reps_2_use = np.arange(1,10+1)
     #sim4: FSM
-    # cellcoal_res_dir = os.path.abspath("./data/s4/ccres")
-    # scp_input_dir = os.path.abspath("./data/s4/scp_input")
+    # dset_name = "s4"
     # n_muts = [50]
     # n_cells = [200]
     # FPRs = [0.0001, 0.01]
     # ADRs = [0.1, 0.5]
     # reps_2_use = np.arange(1,20+1)
     #sim5: cell doublets
-    # cellcoal_res_dir = os.path.abspath("./data/s5/ccres")
-    # scp_input_dir = os.path.abspath("./data/s5/scp_input")
+    dset_name = "s5"
     # n_muts = [50]
     # n_cells = [100, 300]
     # FPRs = [0.0001, 0.01]
     # ADRs = [0.1, 0.5]
     # reps_2_use = np.arange(1,10+1)
+    n_muts = [50]
+    n_cells = [100]
+    FPRs = [0.01]
+    ADRs = [0.1]
+    reps_2_use = [1]
     #sim6: large datasets
-    cellcoal_res_dir = os.path.abspath("./data/s6/ccres")
-    scp_input_dir = os.path.abspath("./data/s6/scp_input")
-    # n_muts = [300, 400, 500]
-    n_muts = [1000]
-    n_cells = [1000]
-    FPRs = [0.0001]
-    ADRs = [0.5]
-    reps_2_use = np.arange(1,10+1)
+    # dset_name = "s6"
+    # # n_muts = [300, 400, 500]
+    # n_muts = [1000]
+    # n_cells = [1000]
+    # FPRs = [0.0001]
+    # ADRs = [0.5]
+    # reps_2_use = np.arange(1,10+1)
+    #sim7: Very various err rates for scp err estimation testing
+    # dset_name = "s7"
+    # n_muts = [20, 50]
+    # n_cells = [50, 300]
+    # FPRs = [0.0001, 0.00033, 0.001, 0.00333, 0.01]
+    # ADRs = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9]
+    # reps_2_use = [1]
 
+
+    cellcoal_res_dir = os.path.join(DATA_DIR, dset_name, "ccres")
+    scp_input_dir = os.path.join(DATA_DIR, dset_name, "scp_input")
 
     allow_FP_snvs = False #Note: FN snvs are omitted by default
     #snv filtering criteria
@@ -386,6 +386,9 @@ def main():
                         out_dir = os.path.join(scp_input_dir, save_dir_fn)
                         if not os.path.exists(out_dir):
                             os.makedirs(out_dir)
+                        fn_cell_clust_ass = os.path.join(out_dir,"true_cell_clst_ass")
+                        # if os.path.isfile(fn_cell_clust_ass):
+                        #     continue
 
                         muts_in_data = n_mut*input_dataset_size_2_cellcoal_dataset_size
                         cells_in_data = n_cell*input_dataset_size_2_cellcoal_dataset_size
@@ -401,8 +404,6 @@ def main():
                         full_snv_data, full_snv_locations = load_cellcoal_snv_data(fn_snv_hap)
                             #Get the true data for those same snvs across all cells
                         full_true_data = load_cellcoal_true_snv_data(fn_true_hap, full_snv_locations)
-                        np.savetxt(os.path.join(out_dir,"true_data"), full_true_data, fmt='%d', delimiter=" ")
-                        np.savetxt(os.path.join(out_dir,"data"), full_snv_data, fmt='%d', delimiter=" ")
                             #Identify a subset of snvs that are good for using in scpairtree / other methods. 
                             #False negative snvs are already ommitted due to not being listed in snv_data / snv_locations
                             #False positive snvs can be selected with the boolean variable defined above called 'allow_FP_snvs'

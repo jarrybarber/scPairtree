@@ -239,15 +239,15 @@ def _sample_rel(selection_probs):
 
     p = np.random.rand()
     s = 0
-    sel_prob = 0
+    log_sel_prob = 0
     for rel in range(NUM_MODELS):
         this_rel_p = norm_sp[rel]
         if p < s + this_rel_p:
-            sel_prob += np.log(this_rel_p)
+            log_sel_prob += np.log(this_rel_p)
             break
         s = s + this_rel_p
 
-    return rel, sel_prob
+    return rel, log_sel_prob
 
 
 numba.njit(cache=True)
@@ -259,29 +259,29 @@ def _sample_tree(pairs_tensor, rng_i, rng_j, status=None):
     for i in range(n_mut+1):
         anc[i,i] = 1
     selection_probs = np.copy(pairs_tensor)
-    samp_prob = 0
+    log_samp_prob = 0
     for i,j in zip(rng_i, rng_j):
         if np.all(selection_probs[i,j,:] == np.NINF):
             continue
-        rel, sel_prob = _sample_rel(selection_probs[i,j,:])
-        samp_prob += sel_prob
+        rel, log_sel_prob = _sample_rel(selection_probs[i,j,:])
+        log_samp_prob += log_sel_prob
         _propogate_rules(anc,i,j,rel,selection_probs)
 
     if status is not None:
         status.put(True)
 
-    return tree_util.convert_ancmatrix_to_parents(anc), samp_prob
+    return tree_util.convert_ancmatrix_to_parents(anc), log_samp_prob
 
 numba.njit(cache=True)
 def _sample_trees(pairs_tensor, rng_i, rng_j, n_samples, status=None):
     n_mut = pairs_tensor.shape[0]
     trees = np.zeros((n_samples, n_mut), dtype=int)
-    tree_probs = np.zeros(n_samples)
+    tree_log_probs = np.zeros(n_samples)
     for i in range(n_samples):
-        tree, tree_prob = _sample_tree(pairs_tensor, rng_i, rng_j, status)
+        tree, tree_log_prob = _sample_tree(pairs_tensor, rng_i, rng_j, status)
         trees[i,:] = tree
-        tree_probs[i] = tree_prob
-    return trees, tree_probs
+        tree_log_probs[i] = tree_log_prob
+    return trees, tree_log_probs
 
 def _calc_sample_llhs(samples, data, mut_ass, fprs, ados, d_rng_i):
     n_samples = samples.shape[0]
@@ -338,12 +338,12 @@ def sample_trees(pairs_tensor, n_samples, order_by_certainty=True, parallel=None
     selection_probs[range(n_mut),range(n_mut),Models.cocluster] = -np.inf
 
     trees = np.zeros((n_samples, n_mut), dtype=int)
-    tree_probs = np.zeros(n_samples)
+    tree_log_probs = np.zeros(n_samples)
     
     if parallel is None:
         with progressbar(total=n_samples, desc='Sampling trees', unit='tree', dynamic_ncols=True) as pbar:
             for i in range(n_samples):
-                trees[i,:], tree_probs[i] = _sample_tree(selection_probs, rng_i, rng_j)
+                trees[i,:], tree_log_probs[i] = _sample_tree(selection_probs, rng_i, rng_j)
                 pbar.update()
     else:
         manager = multiprocessing.Manager()
@@ -377,10 +377,10 @@ def sample_trees(pairs_tensor, n_samples, order_by_certainty=True, parallel=None
         
         pool.join()
         for i in range(int(np.floor(n_samples/chunksize))):
-            trees[chunksize*i:chunksize*(i+1),:], tree_probs[chunksize*i:chunksize*(i+1)] = jobs[i].get()
-        trees[chunksize*(i+1):,:], tree_probs[chunksize*(i+1):] = jobs[i+1].get()
+            trees[chunksize*i:chunksize*(i+1),:], tree_log_probs[chunksize*i:chunksize*(i+1)] = jobs[i].get()
+        trees[chunksize*(i+1):,:], tree_log_probs[chunksize*(i+1):] = jobs[i+1].get()
         pool.terminate()
-    return trees, tree_probs
+    return trees, tree_log_probs
 
 
 def main():
