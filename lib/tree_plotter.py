@@ -8,8 +8,8 @@ def plot_tree(adj_mat, node_ids=None, title=""):
     text_offset = [node_radius-0.02, -node_radius+0.02]
 
     if node_ids is None:
-        node_ids = np.arange(1,adj_mat.shape[0])
-    node_ids = np.append([0], node_ids)
+        node_ids = [str(i) for i in np.arange(1,adj_mat.shape[0])]
+    node_ids = np.append('Root', node_ids)
 
     nt_adj_mat = adj_mat - np.diag(np.diag(adj_mat))
     root_node = np.where(np.sum(nt_adj_mat,axis=0) == 0)[0][0]

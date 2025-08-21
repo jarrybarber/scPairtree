@@ -4,7 +4,9 @@ import random
 ex_dir = os.path.dirname(os.path.abspath(__file__))
 scp_dir = os.path.abspath(os.path.join(ex_dir,"../.."))
 sys.path.append(os.path.abspath(os.path.join(scp_dir,"lib")))
+sys.path.append(os.path.abspath(os.path.join(scp_dir,"bin")))
 from data_simulator import generate_simulated_data
+import tree_plotter
 
 
 def main():
@@ -49,6 +51,9 @@ def main():
     np.savetxt(fn+".actual_adj_mat", adj_mat, "%d")
     np.savetxt(fn+".cluster_assignments_muts", mut_assignments, "%d")
     np.savetxt(fn+".cluster_assignments_cells", cell_assignments, "%d")
+
+    fig = tree_plotter.plot_tree(adj_mat,mut_assignments,"Actual Tree")
+    fig.savefig(fn+"_actual_tree.png")
 
 
 if __name__ == "__main__":
