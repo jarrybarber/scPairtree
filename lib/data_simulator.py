@@ -84,15 +84,15 @@ def _generate_tree_structure(n_clust):
 
     return adj_mat, anc_mat
 
-def generate_simulated_data(n_clust, n_cells, n_muts, FPR, ADO, cell_alpha, mut_alpha, drange, min_cell_per_node=1, min_mut_per_node=1):
+def generate_simulated_data(n_clust, n_cell, n_mut, FPR, ADR, cell_alpha, mut_alpha, drange, min_cell_per_node=1, min_mut_per_node=1):
     #These correspond to how the nodes / subclones are related to each other.
     adj_mat, anc_mat = _generate_tree_structure(n_clust)
     
-    cell_assignments = _assign_to_subclones(n_cells, n_clust, min_cell_per_node, a=cell_alpha)
-    mut_assignments  = _assign_to_subclones(n_muts,  n_clust, min_mut_per_node, a=mut_alpha)
+    cell_assignments = _assign_to_subclones(n_cell, n_clust, min_cell_per_node, a=cell_alpha)
+    mut_assignments  = _assign_to_subclones(n_mut,  n_clust, min_mut_per_node, a=mut_alpha)
 
     real_data = _generate_error_free_data(anc_mat,cell_assignments,mut_assignments)
-    data = _apply_errors(real_data,FPR,ADO)
+    data = _apply_errors(real_data,FPR,ADR)
     data = _put_data_in_drange_format(data,drange)
     return data, (real_data, adj_mat, cell_assignments, mut_assignments)
 

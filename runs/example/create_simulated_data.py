@@ -27,7 +27,7 @@ def main():
     np.random.seed(seed)
     random.seed(seed)
 
-    data, true_tree = generate_simulated_data(n_clusts=n_clust,n_muts=n_mut,n_cells=n_cell,FPR=fpr,ADO=adr,cell_alpha=1,mut_alpha=1,drange=d_rng_i)
+    data, true_tree  = generate_simulated_data(n_clust=n_clust,n_mut=n_mut,n_cell=n_cell,FPR=fpr,ADR=adr,cell_alpha=1,mut_alpha=1,drange=d_rng_i)
     noise_free_data  = true_tree[0]
     adj_mat          = true_tree[1]
     cell_assignments = true_tree[2]
