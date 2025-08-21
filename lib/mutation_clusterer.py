@@ -272,7 +272,6 @@ def _update_phi(clst_i, pairwise_occurances, n_mut, fprs, adrs, phis, pis, d_rng
         print("  clust_i: {}".format(clst_i))
         print("  phis: {}".format(phis))
         print("  pis: {}".format(pis))
-        # print("  pairwise_occurances: {}".format(pairwise_occurances))
         print("  scale: {}".format(log_norm_val))
         print("  saving a figure to show pdf and what it's max should be")
         x = np.linspace(lower_bound,upper_bound,10000)
@@ -309,7 +308,7 @@ def _perform_gibbs_sampling(pairwise_occurances, n_clust, n_mut, adrs, fprs, pis
     best_nclust = n_clust
 
     for iter in range(n_iter):
-        if iter % 5 == 0:
+        if iter % 10 == 0:
             print("Iter: {}/{}".format(iter,n_iter))       
         for i in range(n_clust):
             phis = _update_phi(i, pairwise_occurances, n_mut, fprs, adrs, phis, pis, d_rng_i)
@@ -334,7 +333,7 @@ def _perform_gibbs_sampling(pairwise_occurances, n_clust, n_mut, adrs, fprs, pis
         return best_phis, best_pis, best_nclust, best_llh
 
 
-def cluster_mutations(data, fpr, adr, est_mut_phis, n_iter, burnin, pi_prior_alpha_hat, d_rng_i, ret_all_iters=False):
+def cluster_mutations(data, fpr, adr, est_mut_phis, n_iter, burnin, pi_prior_alpha_hat, d_rng_i, ret_all_iters=False, init_method="all_together"):
     assert data.ndim == 2
     assert n_iter > burnin
     n_mut, n_cell = data.shape
@@ -354,16 +353,17 @@ def cluster_mutations(data, fpr, adr, est_mut_phis, n_iter, burnin, pi_prior_alp
         adrs = np.ones(n_mut)*adr
     
     #initialize the parameters we're sampling
-    phis = np.array([np.mean(est_mut_phis)]) # np.copy(est_mut_phis)
-    pis = np.zeros(n_mut,dtype=int)#np.arange(n_mut,dtype=np.int64) #For now, each mutation will start in it's own cluster
-    n_clust = 1#np.copy(n_mut)
-
-    # print("Initial values:")
-    # print("nClust {}".format(n_clust))
-    # print("ADRs {}".format(adrs))
-    # print("FPRs {}".format(fprs))
-    # print("Mut assignments {}".format(pis))
-    # print("Cluster phis {}\n".format(phis))
+    if init_method == "all_together":
+        #Just a single starting cluster    if hasattr(fpr, "__len__"):
+        fprs = np.copy(fpr)
+        phis = np.array([np.mean(est_mut_phis)])
+        pis = np.zeros(n_mut,dtype=int)
+        n_clust = 1
+    elif init_method == "all_apart":
+        #Each mutation gets its own cluster
+        phis = np.copy(est_mut_phis)
+        pis = np.arange(n_mut,dtype=int)
+        n_clust = np.copy(n_mut)
 
     res = _perform_gibbs_sampling(pairwise_occurances, n_clust, n_mut, adrs, fprs, pis, phis, est_mut_phis, n_iter, burnin, log_pi_dirichlet_alpha, d_rng_i, ret_all_iters)
 

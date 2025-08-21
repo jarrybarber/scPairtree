@@ -1,7 +1,6 @@
 #Calculates the error rates for each mutation individually.
 # --> This version works with the score calculator that makes use of 3s (dropouts)
-# --> This version takes the false positive rate to be the same across mutations, and the false negative rate to be individualistic
-# --> 
+# --> This version takes the false positive rate to be the same across mutations, and the false negative rate to be sire-specific
 
 import numpy as np
 from scipy.optimize import minimize
@@ -63,19 +62,6 @@ def _calc_to_min_val(fprs,adrs,phis,pairwise_occurances,d_rng_i):
             scores[0,i,j] = AB_score
             scores[1,j,i] = AB_score
 
-            # if np.isnan(AB_score):
-            #     print("AB_score is nan")
-            #     print("i,j", i, j)
-            #     print("fprs", fprs[i], fprs[j])
-            #     print("adrs", adrs[i], adrs[j])
-            #     print("phis", phis[i], phis[j])
-            #     for a in [0,1,2,3]:
-            #         for b in [0,1,2,3]:
-            #             print("pairwise_occurances[", a, ",", b, ",i,j]", pairwise_occurances[a,b,i,j])
-            #     print(p_model_given_phi(Models.A_B,phis[i],phis[j]))
-            #     print(p_phi_given_model(Models.A_B,phis[i],phis[j]))
-            #     print(_log_p_data_given_model_phis_and_errors(Models.A_B,pairwise_occurances[:,:,i,j],fprs[i],fprs[j],adrs[i],adrs[j],phis[i],phis[j],d_rng_i))
-
             if j>i:
                 continue
             if phis[i] + phis[j] > 1:
@@ -115,7 +101,6 @@ def estimate_error_rates(data, d_rng_i=DataRangeIdx.ref_var_nodata, variable_adr
     phi0s   = np.random.beta(np.sum(data==1,axis=1)+np.sum(data==2,axis=1)+_EPSILON, np.sum(data==0,axis=1)+_EPSILON)
     phi0s[phi0s==1] = phi0s[phi0s==1] - 0.1*np.random.rand(len(phi0s[phi0s==1]))
     phi0s[phi0s==0] = phi0s[phi0s==0] + 0.1*np.random.rand(len(phi0s[phi0s==0]))
-    # phi0s   = np.random.beta(2,2,n_mut)
     x0 = np.hstack([alpha0s,beta0s,phi0s])
 
     res = minimize(to_min,
@@ -128,10 +113,10 @@ def estimate_error_rates(data, d_rng_i=DataRangeIdx.ref_var_nodata, variable_adr
     est_errs = res.x
     est_FPRs = np.array([est_errs[0]]*n_mut)
     if variable_adr:
-        est_FNRs = est_errs[1:n_mut+1]
+        est_ADRs = est_errs[1:n_mut+1]
         est_phis = est_errs[n_mut+1:]
     else:
-        est_FNRs = np.array([est_errs[1]]*n_mut)
+        est_ADRs = np.array([est_errs[1]]*n_mut)
         est_phis = est_errs[2:]
     
-    return (est_FPRs,est_FNRs,est_phis), x0
+    return (est_FPRs,est_ADRs,est_phis), x0

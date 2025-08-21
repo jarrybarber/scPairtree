@@ -105,22 +105,6 @@ def calc_IS_adj_mat(samples, log_posts, log_qs):
     IS_adj_mat = IS_adj_mat / n_samples
     return IS_adj_mat
 
-# def calc_uniq_samples_with_IS_posterior_prob(samples, samp_probs, data, fprs, ados, mut_ass, d_rng_i):
-#     n_samples = len(samples)
-#     unique_samples, uni_i, uniq_cnts = np.unique(samples, axis=0, return_index=True, return_counts=True)
-#     n_unique = len(unique_samples)
-#     uniq_log_qs = samp_probs[uni_i]
-
-#     uniq_llhs = np.zeros(n_unique)
-#     for i in range(n_unique):
-#         uniq_anc = convert_parents_to_ancmatrix(unique_samples[i])
-#         uniq_llhs[i] = _calc_tree_llh(data,uniq_anc,mut_ass,fprs,ados,d_rng_i)
-    
-#     logC = np.log(n_samples) - numba_logsumexp(np.log(uniq_cnts) + uniq_llhs - uniq_log_qs)
-#     uniq_log_posts = logC + np.log(uniq_cnts) + uniq_llhs
-
-#     return unique_samples, uniq_log_posts, uniq_log_qs
-
 
 def calc_sample_posts(samples, samp_probs, data, fprs, ados, mut_ass, d_rng_i):
     n_samples = len(samples)
@@ -318,7 +302,7 @@ def calc_sample_llhs(samples, data, mut_ass, fprs, ados, d_rng_i, parallel=None)
             chunksize = int(np.max([1,np.min([100, np.ceil(n_samples/parallel)])]))
             for i in range(int(np.floor(n_samples/chunksize))):
                 jobs.append(pool.apply_async(_calc_sample_llhs, args=(samples[chunksize*i:chunksize*(i+1),:], data, mut_ass, fprs, ados, d_rng_i)))
-            # remainder = n_samples % chunksize
+            
             jobs.append(pool.apply_async(_calc_sample_llhs, args=(samples[chunksize*(i+1):,:], data, mut_ass, fprs, ados, d_rng_i)))
             pool.close()
             pool.join()
@@ -373,14 +357,9 @@ def sample_trees(pairs_tensor, n_samples, order_by_certainty=True, parallel=None
         remainder = n_samples % chunksize
         jobs.append(pool.apply_async(_sample_trees, args=(selection_probs, rng_i, rng_j, remainder, sample_status_queue)))
         pool.close()
-        # for i in range(n_samples):
-        #     s.append(pool.apply_async(_sample_tree, args=(selection_probs, rng_i, rng_j, sample_status_queue)))
-        # pool.close()
-        # pool.join()
 
         with progressbar(total=n_samples, desc='Sampling trees', unit='tree', dynamic_ncols=True) as pbar:
             n_sampled = 0
-            # jobs_remaining = np.arange(n_samples)
             while n_sampled < n_samples:
                 
                 if np.all([i.ready() for i in jobs]):
@@ -397,8 +376,6 @@ def sample_trees(pairs_tensor, n_samples, order_by_certainty=True, parallel=None
                 
         
         pool.join()
-        # for i in range(n_samples):
-        #     trees[i,:], tree_probs[i] = s[i].get()
         for i in range(int(np.floor(n_samples/chunksize))):
             trees[chunksize*i:chunksize*(i+1),:], tree_probs[chunksize*i:chunksize*(i+1)] = jobs[i].get()
         trees[chunksize*(i+1):,:], tree_probs[chunksize*(i+1):] = jobs[i+1].get()
@@ -407,6 +384,7 @@ def sample_trees(pairs_tensor, n_samples, order_by_certainty=True, parallel=None
 
 
 def main():
+    print("tree_sampler_DFPT is not callable by itself. Either use call bin/sc_pairtree or import sample_trees() into another script.")
     pass
 
 

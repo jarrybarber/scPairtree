@@ -24,10 +24,6 @@ def write_header(runid, outf):
   else:
     title = 'Posterior summary'
 
-  # TODO: try the ELK layout algorithm instead of Klay. Currently,
-  # cytoscape.js-elk is a little outdated, and seems primed for an upgrade via
-  # this PR: https://github.com/cytoscape/cytoscape.js-elk/pull/15. It has not
-  # been merged as of March 2020, though, so I will wait until it is.
   print('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>%s</title>' % title, file=outf)
   for jsurl in (
     'https://d3js.org/d3.v5.min.js',
@@ -67,8 +63,6 @@ def write_header(runid, outf):
 
 #NOTE: took the below from pairtree's util file. I striped out whatever wasn't needed for sc_pairtree
 def make_tree_struct(struct, count, llh, prob, phi, clusters, sampnames):
-  #K, S = phi.shape
-  #eta = calc_eta(struct, phi)
 
   tree = {
     'phi': -1, #phi.tolist(),
@@ -82,7 +76,6 @@ def make_tree_struct(struct, count, llh, prob, phi, clusters, sampnames):
   }
   return tree
 
-# def summarize(results, params, supervars, outf):
 def summarize(results, outf):
   prob = results.get('prob')
   N = len(prob)
@@ -128,82 +121,6 @@ def _make_congraph(results):
   assert np.all(0 <= graph) and np.all(graph <= 1)
 
   return graph
-
-# def _calc_di(results, samps=1000):
-#   structs = results.get('struct')
-#   phis = results.get('phi')
-#   probs = results.get('prob')
-#   clusters = results.get('clusters')
-#   assert np.isclose(1, np.sum(probs))
-
-#   cdi = []
-#   cmdi = []
-#   cadi = []
-#   for idx in range(samps):
-#     tidx = util.sample_multinom(probs)
-#     eta = util.calc_eta(structs[tidx], phis[tidx])
-#     cdi.append(di.calc_cdi(eta))
-#     cmdi.append(di.calc_cmdi(eta, clusters, structs[tidx]))
-#     cadi.append(di.calc_cadi(eta, structs[tidx]))
-
-  # Size of each array: PxS, given P posterior samples and S tissue samples
-  return (np.array(cdi), np.array(cmdi), np.array(cadi))
-
-def _test_didxs(didxs, didx_type, sidx1, sidx2, alt, sampnames):
-  import scipy.stats
-  stat, pval = scipy.stats.wilcoxon(didxs[didx_type][:,sidx1], didxs[didx_type][:,sidx2], alternative=alt)
-  print(didx_type, sampnames[sidx1], sampnames[sidx2], alt, pval)
-
-# def _plot_di(results, visible_sampidxs, outf):
-#   didxs = {K: I for K, I in zip(('cdi', 'cmdi', 'cadi'), _calc_di(results))}
-#   sampnames = results.get('sampnames')
-#   print('<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>', file=outf)
-#   print('<h2>Diversity indices</h2>', file=outf)
-
-#   titles = {
-#     'cdi': 'Clone diversity index',
-#     'cmdi': 'Clone and mutation diversity index',
-#     'cadi': 'Clone and ancestor diversity index',
-#   }
-
-#   for K in didxs.keys():
-#     traces = [dict(
-#       type = 'box',
-#       name = sampname,
-#       y = didxs[K][:,sidx],
-#       showlegend = False,
-#       boxpoints = 'all',
-#       boxmean = True,
-#       pointpos = 1.5,
-#     ) for sidx, sampname in enumerate(sampnames) if visible_sampidxs is None or sidx in visible_sampidxs]
-#     layout = go.Layout(
-#       template = 'seaborn',
-#       title = '{di_name}'.format(di_name = titles[K]),
-#       xaxis = {'title': 'Sample'},
-#       yaxis = {'title': '{di_name} (bits)'.format(di_name = K.upper())},
-#     )
-#     fig = go.Figure(data=traces, layout=layout)
-
-#     # Example hack showing how you can do Wilcoxon signed-rank test on
-#     # diversity indices for two particular samples. Eventually this
-#     # functionality should be broken out into its own discrete script.
-#     #_test_didxs(didxs, K, 0, 46, 'less', sampnames)
-#     #_test_didxs(didxs, K, 70, 72, 'greater', sampnames)
-
-#     html = pio.to_html(
-#       fig,
-#       include_plotlyjs=False,
-#       full_html=False,
-#       config = {
-#         'showLink': True,
-#         'toImageButtonOptions': {
-#           'format': 'svg',
-#           'width': 750,
-#           'height': 450,
-#         },
-#       }
-#     )
-#     print(html, file=outf)
 
 def _plot_congraph(congraph, outf):
   print('''
@@ -264,7 +181,7 @@ def main():
   all_plot_choices = (
     'posterior_summ',
     'congraph',
-    # 'diversity_indices', # JB: removing for now, since I don't do any clustering at the moment
+    # 'diversity_indices', # JB: removing for now
   )
 
   parser = argparse.ArgumentParser(
@@ -287,12 +204,6 @@ def main():
   plot_choices = _choose_plots(args.plot_choices, args.omit_plots, all_plot_choices)
 
   results = result_serializer.Results(args.results_fn)
-  # variants = inputparser.load_ssms(args.ssm_fn)
-  # params = inputparser.load_params(args.params_fn)
-  # supervars = clustermaker.make_cluster_supervars(results.get('clusters'), variants)
-  # supervars = [supervars[vid] for vid in common.sort_vids(supervars.keys())]
-
-  # visible_sampidxs = plotutil.hide_samples(params['samples'], params.get('hidden_samples'))
 
   with open(args.html_out_fn, 'w') as outf:
     write_header(args.runid, outf)

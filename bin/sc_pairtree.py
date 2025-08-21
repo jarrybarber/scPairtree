@@ -122,7 +122,7 @@ def _get_default_args(args):
         if args.conv_thresh is None and args.conv_min_samp is None and args.check_conv_every is None:
             raise Exception("Not all convergence criteria is set. Either all or none of the following options should be set:\n - --convergence-threshold\n - --convergence-min-nsamples\n - --check-convergence-every")
         convergence_options = {"threshold": args.conv_thresh,
-                            "min_samples": args.conv_min_samp,#int(25000*0.5*0.5),#1000,
+                            "min_samples": args.conv_min_samp,
                             "check_every": args.check_conv_every}
     else:
         convergence_options = None
@@ -286,7 +286,11 @@ def main():
         res.save()
     if not res.has("mut_ids"):
         if args.mut_id_fn is not None:
-            mut_ids = np.loadtxt(args.mut_id_fn)
+            # mut_ids = np.loadtxt(args.mut_id_fn)
+            mut_ids = []
+            with open(args.mut_id_fn,'r') as f:
+                for line in f.readlines():
+                    mut_ids.append(line)
         else:
             mut_ids = np.arange(data.shape[0])
         res.add("mut_ids",mut_ids)

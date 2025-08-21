@@ -60,12 +60,6 @@ def _scaled_softmax(A, R=100):
     B = min(1, np.log(R) / delta)
     return util.softmax(B*A)
 
-# def _sample_cat(W):
-#     #NOTE: taken from Jeff's tree_sampler. (could probably go into a util file)
-#     assert np.all(W >= 0) and np.isclose(1, np.sum(W))
-#     choice = np.random.choice(len(W), p=W)
-#     assert W[choice] > 0
-#     return choice
 
 @njit(cache=True)
 def _sample_cat(W):
@@ -159,9 +153,6 @@ def _make_W_nodes_mutrel(adj, anc, pairs_tensor):
         assert util.isclose(0, pair_error[0,i])
         assert util.isclose(0, pair_error[i,0])
         assert util.isclose(0, pair_error[i,i])
-    # assert np.allclose(0, np.diag(pair_error))
-    # assert np.allclose(0, pair_error[0])
-    # assert np.allclose(0, pair_error[:,0])
     pair_error = np.maximum(common._EPSILON, pair_error)
     node_error = np.sum(np.log(pair_error), axis=1)
 
@@ -268,56 +259,6 @@ def _make_W_dests_mutrel(subtree_head, curr_parent, adj, anc, pairs_tensor):
     assert not np.any(np.isinf(valid_logweights))
     weights = _scaled_softmax(logweights)
     
-    # Since we end up taking logs, this can't be exactly zero. If the logweight
-    # is extremely negative, then this would otherwise be exactly zero.
-    weights += common._EPSILON
-    weights[curr_parent] = 0
-    weights[subtree_head] = 0
-    weights /= np.sum(weights)
-    return weights
-
-@njit(cache=True)
-def _old_make_W_dests_mutrel(subtree_head, curr_parent, adj, anc, pairs_tensor):
-    #NOTE: This code was copied from Jeff's tree_sampler.py
-    assert subtree_head > 0
-    assert adj[curr_parent,subtree_head] == 1
-    cluster_idx = subtree_head - 1
-    K = len(adj)
-
-    # tree_mod_times = []
-    # tree_logmutrel_times = []
-    # sum_triu_times = []
-    # t_s = time.time()
-    logweights = np.full(K, -np.inf)
-    for dest in range(K):
-        if dest == curr_parent:
-            continue
-        if dest == subtree_head:
-            continue
-        # s = time.time()
-        new_adj = _modify_tree(adj, anc, dest, subtree_head)
-        # e = time.time()
-        # tree_mod_times.append(e-s)
-        # s = time.time()
-        tree_logmutrel = _calc_tree_logmutrel(new_adj, pairs_tensor)
-        # e = time.time()
-        # tree_logmutrel_times.append(e-s)
-        # s = time.time()
-        logweights[dest] = np.sum(np.triu(tree_logmutrel))
-        # e = time.time()
-        # sum_triu_times.append(e-s)
-    # t_e = time.time()
-    # print("\t\t\t\tTime modify tree many times:", np.sum(tree_mod_times)) #not really an issue at the moment
-    # print("\t\t\t\tTime calc tree_logmutrel many times:", np.sum(tree_logmutrel_times)) #Takes a surprisingly long time. Probably about half the time of each tree sample
-    # print("\t\t\t\tTime calc sum(triu()) many times:", np.sum(sum_triu_times)) #Also suprisingly long time. About quarter of overall time.
-    # print("\t\t\tTime for calc logweights:", t_e-t_s) #Again, this is main sore spot
-    assert not np.any(np.isnan(logweights))
-    valid_logweights = np.delete(logweights, (curr_parent, subtree_head))
-    assert not np.any(np.isinf(valid_logweights))
-    # s = time.time()
-    weights = _scaled_softmax(logweights)
-    # e = time.time()
-    # print("\t\t\tTime for softmax calc:", e-s)
     # Since we end up taking logs, this can't be exactly zero. If the logweight
     # is extremely negative, then this would otherwise be exactly zero.
     weights += common._EPSILON
@@ -660,8 +601,8 @@ def sample_trees(sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, burn
             assert "check_every" in convergence_options.keys() 
             convergence_options["signal"] = manager.Event()
         chain_status_queue = [manager.Queue() for i in range(nchains)]
-        chain_means = np.zeros([nchains, n_mut+1, n_mut+1])#manager.Array(np.array, np.zeros((n_mut+1, n_mut+1)))
-        chain_vars  = np.zeros([nchains, n_mut+1, n_mut+1])#manager.Array(np.array, np.zeros((n_mut+1, n_mut+1)))
+        chain_means = np.zeros([nchains, n_mut+1, n_mut+1])
+        chain_vars  = np.zeros([nchains, n_mut+1, n_mut+1])
         n_sampled = 0
 
         with progressbar(total=total, desc='Sampling trees', unit='tree', dynamic_ncols=True) as pbar:
@@ -772,7 +713,7 @@ def sample_trees(sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, burn
 
 
 def compute_posterior(adjms, llhs, sort_by_llh=True):
-    #NOTE: modified by Jarry, March 2022
+    #NOTE: modified by JB, 2022
     unique = {}
 
     for A, L in zip(adjms, llhs):
