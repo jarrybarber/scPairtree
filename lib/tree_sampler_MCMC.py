@@ -3,7 +3,7 @@ from numba import njit
 import math
 
 from progressbar import progressbar
-import hyperparams as hparams
+# import hyperparams as hparams
 import util
 import tree_util
 import common
@@ -354,7 +354,7 @@ def _modify_tree(adj, anc, A, B,):
     return adj
 
 @njit(cache=True)
-def _generate_new_sample(old_samp, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_id):
+def _generate_new_sample(old_samp, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_id, gamma, zeta):
     #NOTE: This code was copied from Jeff's tree_sampler.py
     # s_tot = time.time()
     K = len(old_samp.adj)
@@ -367,8 +367,8 @@ def _generate_new_sample(old_samp, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_
 
     # mode == 0: make uniform update
     # mode == 1: make mutrel-informed update
-    mode_node_weights = np.array([1 - hparams.gamma, hparams.gamma])
-    mode_dest_weights = np.array([1 - hparams.zeta,  hparams.zeta])
+    mode_node_weights = np.array([1 - gamma, gamma])
+    mode_dest_weights = np.array([1 - zeta,  zeta])
     mode_node = _sample_cat(mode_node_weights)
     mode_dest = _sample_cat(mode_dest_weights)
 
@@ -432,7 +432,7 @@ def _generate_new_sample(old_samp, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_
     return (new_samp, log_p_new_given_old, log_p_old_given_new)
 
 
-def _init_chain(seed, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_id):
+def _init_chain(seed, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_id, hparams):
     #NOTE: This code was copied from Jeff's tree_sampler.py
 
     # Ensure each chain gets a new random state. I add chain index to initial
@@ -440,7 +440,7 @@ def _init_chain(seed, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_id):
     # the valid range [0, 2**32).
     np.random.seed(seed % 2**32)
 
-    if np.random.uniform() < hparams.iota:
+    if np.random.uniform() < hparams['iota']:
         # init_adj = _init_cluster_adj_mutrels(pairs_tensor)
         init_tree, _ = init_tree_sample_DFPT(pairs_tensor,1,True,None)
         init_adj = tree_util.convert_parents_to_adjmatrix(init_tree.flatten())
@@ -467,7 +467,7 @@ def _init_chain(seed, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_id):
     return init_samp
 
 
-def _run_chain(data, pairs_tensor, mut_ass, FPR, ADO, nsamples, thinned_frac, burnin, seed, d_rng_id, chain_status_queue=None, convergence_options=None):
+def _run_chain(data, pairs_tensor, mut_ass, FPR, ADO, nsamples, thinned_frac, burnin, seed, d_rng_id, hparams, chain_status_queue=None, convergence_options=None):
 
     assert nsamples > 0
     assert 0 < thinned_frac <= 1
@@ -481,7 +481,7 @@ def _run_chain(data, pairs_tensor, mut_ass, FPR, ADO, nsamples, thinned_frac, bu
     #set some useful variables
     record_every = round(1 / thinned_frac)
     accepted = 0
-    new_samp = _init_chain(seed, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_id)
+    new_samp = _init_chain(seed, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_id, hparams)
     old_samp = new_samp
     best_samp = new_samp
     samp_adjs = [new_samp.adj]
@@ -500,7 +500,9 @@ def _run_chain(data, pairs_tensor, mut_ass, FPR, ADO, nsamples, thinned_frac, bu
             mut_ass,
             FPR,
             ADO,
-            d_rng_id
+            d_rng_id,
+            hparams['gamma'],
+            hparams['zeta']
         )
 
         log_p_transition = (new_samp.llh - old_samp.llh) + (log_p_old_given_new - log_p_new_given_old)
@@ -572,7 +574,7 @@ def gelman_rubin_convergence(chain_vars, chain_means, trees_per_chain, nchains):
     return np.sqrt(1. + B/(mean_wcv+_EPSILON))
 
 
-def sample_trees(sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, burnin, nchains, thinned_frac, seed, parallel, d_rng_id, convergence_options=None):
+def sample_trees(sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, burnin, nchains, thinned_frac, seed, parallel, d_rng_id, hparams, convergence_options=None):
     assert nchains > 0
     assert trees_per_chain > 0
     assert 0 <= burnin <= 1
@@ -610,7 +612,7 @@ def sample_trees(sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, burn
                 for C in range(nchains):
                     # Ensure each chain's random seed is different from the seed used to
                     # seed the initial scPairtree invocation, yet nonetheless reproducible.
-                    jobs.append(ex.submit(_run_chain, sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, thinned_frac, burnin, seed + C + 1, d_rng_id, chain_status_queue[C], convergence_options))
+                    jobs.append(ex.submit(_run_chain, sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, thinned_frac, burnin, seed + C + 1, d_rng_id, hparams, chain_status_queue[C], convergence_options))
 
                 while True:
                     finished = 0
@@ -687,7 +689,7 @@ def sample_trees(sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, burn
     else:
         results = []
         for C in range(nchains):
-            results.append(_run_chain(sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, thinned_frac, burnin, seed + C + 1, d_rng_id, None, None))
+            results.append(_run_chain(sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, thinned_frac, burnin, seed + C + 1, d_rng_id, hparams, None, None))
     merged_adj = []
     merged_llh = []
     accept_rates = []

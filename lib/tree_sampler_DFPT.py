@@ -106,7 +106,7 @@ def calc_IS_adj_mat(samples, log_posts, log_qs):
     return IS_adj_mat
 
 
-def calc_sample_posts(samples, samp_probs, data, fprs, ados, mut_ass, d_rng_i):
+def calc_sample_posts(samples, samp_log_probs, data, fprs, ados, mut_ass, d_rng_i):
     n_samples = len(samples)
 
     llhs = np.zeros(n_samples)
@@ -114,7 +114,7 @@ def calc_sample_posts(samples, samp_probs, data, fprs, ados, mut_ass, d_rng_i):
         uniq_anc = tree_util.convert_parents_to_ancmatrix(samples[i])
         llhs[i] = tree_util.calc_tree_llh(data,uniq_anc,mut_ass,fprs,ados,d_rng_i)
     
-    logC = np.log(n_samples) - numba_logsumexp(llhs - samp_probs)
+    logC = np.log(n_samples) - numba_logsumexp(llhs - samp_log_probs)
     log_posts = logC + llhs
 
     return log_posts
@@ -177,10 +177,10 @@ def _propogate_rules(anc,i,j,rel,model_probs):
                 model_probs[k,i,Models.A_B]=-np.inf
             
             #If after propogation there is only one valid relationship, set that relationship and propogate againt
-            if np.sum(model_probs[i,k,:]==np.NINF)==4:
+            if np.sum(model_probs[i,k,:]==-np.inf)==4:
                 rel = np.argwhere(model_probs[i,k,:].flatten() > -np.inf).flatten()[0]
                 _propogate_rules(anc,i,k,rel,model_probs)
-            if np.sum(model_probs[j,k,:]==np.NINF)==4:
+            if np.sum(model_probs[j,k,:]==-np.inf)==4:
                 rel = np.argwhere(model_probs[j,k,:].flatten() > -np.inf).flatten()[0]
                 _propogate_rules(anc,j,k,rel,model_probs)
     elif rel == Models.diff_branches:
@@ -211,10 +211,10 @@ def _propogate_rules(anc,i,j,rel,model_probs):
                 model_probs[i,k,Models.A_B]=-np.inf 
                 model_probs[k,i,Models.B_A]=-np.inf
             
-            if np.sum(model_probs[i,k,:]==np.NINF)==4:
+            if np.sum(model_probs[i,k,:]==-np.inf)==4:
                 rel = np.argwhere(model_probs[i,k,:].flatten() > -np.inf).flatten()[0]
                 _propogate_rules(anc,i,k,rel,model_probs)
-            if np.sum(model_probs[j,k,:]==np.NINF)==4:
+            if np.sum(model_probs[j,k,:]==-np.inf)==4:
                 rel = np.argwhere(model_probs[j,k,:].flatten() > -np.inf).flatten()[0]
                 _propogate_rules(anc,j,k,rel,model_probs)
     return
@@ -261,7 +261,7 @@ def _sample_tree(pairs_tensor, rng_i, rng_j, status=None):
     selection_probs = np.copy(pairs_tensor)
     log_samp_prob = 0
     for i,j in zip(rng_i, rng_j):
-        if np.all(selection_probs[i,j,:] == np.NINF):
+        if np.all(selection_probs[i,j,:] == -np.inf):
             continue
         rel, log_sel_prob = _sample_rel(selection_probs[i,j,:])
         log_samp_prob += log_sel_prob
@@ -316,8 +316,8 @@ def calc_sample_llhs(samples, data, mut_ass, fprs, ados, d_rng_i, parallel=None)
 def sample_trees(pairs_tensor, n_samples, order_by_certainty=True, parallel=None):
     #Only use the pairs_tensor which has been normalized ignoring cocluster and garbage models, since we do not want to select them.
     n_mut = pairs_tensor.shape[0]
-    # assert np.all(pairs_tensor[:,:,Models.cocluster] == np.NINF)
-    assert np.all(pairs_tensor[:,:,Models.garbage] == np.NINF)
+    # assert np.all(pairs_tensor[:,:,Models.cocluster] == -np.inf)
+    assert np.all(pairs_tensor[:,:,Models.garbage] == -np.inf)
     assert np.all(np.isclose(np.sum(np.exp(pairs_tensor),axis=2),1))
 
     if order_by_certainty:

@@ -120,3 +120,11 @@ def estimate_error_rates(data, d_rng_i=DataRangeIdx.ref_var_nodata, variable_adr
         est_phis = est_errs[2:]
     
     return (est_FPRs,est_ADRs,est_phis), x0
+
+
+def main():
+    print("error_rate_estimator is not callable by itself")
+    pass
+
+if __name__ == "__main__":
+    main()
