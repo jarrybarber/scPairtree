@@ -11,8 +11,8 @@ import tree_plotter
 
 def main():
     '''
-    Generates some simulated data for the example.
-    The parameters below can be changed to produce different sized datasets
+    Generates simulated data for the example.
+    The parameters below can be changed to produce datasets of different sizes
     '''
     
     #Dataset parameters

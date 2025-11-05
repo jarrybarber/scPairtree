@@ -120,59 +120,15 @@ def _parse_args():
                         help='(Optional) The number of samples to take when performing dfpt sampling. Default: 100000')
 
     # Hyperparameter options
-    parser.add_argument('--gamma', dest='gamma', type=float,
+    parser.add_argument('--gamma', dest='gamma', type=float, default=0.7,
          help="Proportion of tree modifications that should use pairs-tensor-informed choice for node to move, rather than uniform choice. Default: 0.7")
-    parser.add_argument('--zeta', dest='zeta', type=float,
+    parser.add_argument('--zeta', dest='zeta', type=float, default=0.7,
          help="Proportion of tree modifications that should use pairs-tensor-informed choice for destination to move node to, rather than uniform choice. Default: 0.7")
-    parser.add_argument('--iota', dest='iota', type=float,
-         help="Probability of initializing with pairs-tensor-informed tree rather than fully branching tree when beginning chain. Default: 0.7")
+    parser.add_argument('--iota', dest='iota', type=float, default=0.7,
+         help="Probability of initializing an MCMC chain with a pairs-tensor-informed tree rather than a fully branching tree. Default: 0.7")
 
     args = parser.parse_args()
     return args
-
-def _get_default_args(args):
-
-    if (args.fpr is not None) or (args.adr is not None):
-        if np.logical_xor((args.fpr is None), (args.adr is None)):
-            raise Exception("Currently, scPairtree requires either both error rates to be set or neither to be set. Please set both:\n - --adr\n - --fpr")
-    
-    if args.only_estimate_errors and args.only_build_tensor:
-        raise Exception("Both --only-estimate-errors and --only-build-tensor cannot both be set at the same time.")
-
-    # Note that multiprocessing.cpu_count() returns number of logical cores, so
-    # if you're using a hyperthreaded CPU, this will be more than the number of
-    # physical cores you have.
-    parallel = args.parallel if args.parallel is not None else multiprocessing.cpu_count()
-    if args.tree_chains is not None:
-        tree_chains = args.tree_chains
-    else:
-        # We sometimes set `parallel = 0` to disable the use of multiprocessing,
-        # making it easier to read debug messages.
-        tree_chains = max(1, parallel)
-
-    if args.seed is not None:
-        seed = args.seed
-    else:
-        # Maximum seed is 2**32 - 1.
-        seed = np.random.randint(2**32)
-    
-    if args.d_rng_i is None:
-        raise Exception("Data range argument has not been specified. \n\nThis argument specifies whether the input data has known ranges: \n\t - \"no variant\" and \"variant\" [0,1] \n\t - \"reference\", \"variant\" and \"no data\" [0,1,3] \n\t - \"reference\", \" heterzygous variant\", \"homozygous variant\" and \"no data\" [0,1,2,3]. \n\nPlease specify using the --data-range option.")
-    else:
-        d_rng_i = args.d_rng_i
-
-    if args.conv_thresh is not None or args.conv_min_samp is not None or args.check_conv_every is not None:
-        if args.conv_thresh is None and args.conv_min_samp is None and args.check_conv_every is None:
-            raise Exception("Not all convergence criteria is set. Either all or none of the following options should be set:\n - --convergence-threshold\n - --convergence-min-nsamples\n - --check-convergence-every")
-        convergence_options = {"threshold": args.conv_thresh,
-                            "min_samples": args.conv_min_samp,
-                            "check_every": args.check_conv_every}
-    else:
-        convergence_options = None
-
-    
-
-    return parallel, tree_chains, seed, d_rng_i, convergence_options
 
 
 def _check_args_for_errors(args):

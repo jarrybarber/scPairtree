@@ -19,17 +19,15 @@ function run {
     out_fn=$RESDIR/$filename
     
     python $SCP_BINDIR/sc_pairtree.py \
-                        $data_fn \
-                        $out_fn \
+                        --data-fn $data_fn \
+                        --results-fn $out_fn \
+                        --data-range $d_rng_id \
                         --mut-id-fn $mut_id_fn \
                         --seed $seed \
-                        --data-range $d_rng_id \
                         --parallel $n_mcmc_rep \
                         --trees-per-chain $tpc \
                         --burnin $burnin \
-                        --thinned-frac $thin_frac \
-                        --skip-clustering \
-                        --rerun
+                        --thinned-frac $thin_frac 
 
     python $SCP_BINDIR/summ_posterior.py \
                         --runid $filename \
