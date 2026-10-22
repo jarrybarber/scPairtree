@@ -39,8 +39,8 @@ class progressbar_file:
     self._last_printed = self._started_at
     self._print()
 
-  def update(self):
-    self._count += 1
+  def update(self, n=1):
+    self._count += n
     if self._total > -1:
       assert self._count <= self._total
 

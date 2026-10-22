@@ -1,6 +1,7 @@
 import numpy as np
 from numba import njit
 import math
+import time
 
 from progressbar import progressbar
 # import hyperparams as hparams
@@ -16,6 +17,12 @@ TreeSample = namedtuple('TreeSample', (
   'anc',
   'llh'
 ))
+
+# Trees are often sampled faster than the parent process can read messages from
+# the chains' queues. So, rather than sending a message for every tree, each chain
+# sends the number of trees sampled since its last message at most this often (in
+# seconds), or whenever it reports convergence information.
+_STATUS_REPORT_INTERVAL = 0.1
 
 
 
@@ -474,9 +481,11 @@ def _run_chain(data, pairs_tensor, mut_ass, FPR, ADO, nsamples, thinned_frac, bu
     if convergence_options is not None:
         assert chain_status_queue is not None
 
-    #Initialize the progress bar if there is one
-    if chain_status_queue is not None:
-        chain_status_queue.put([])
+    #Messages sent to chain_status_queue are of the form (n_new_trees, adj_mean, adj_var),
+    #where adj_mean and adj_var are None unless this is a convergence check.
+    #The initial tree counts as the first sample.
+    n_unreported = 1
+    last_report = time.perf_counter()
 
     #set some useful variables
     record_every = round(1 / thinned_frac)
@@ -521,18 +530,27 @@ def _run_chain(data, pairs_tensor, mut_ass, FPR, ADO, nsamples, thinned_frac, bu
             samp_llhs.append(samp.llh)
             
         if (chain_status_queue is not None):
+            n_unreported += 1
             if (convergence_options is not None) and (I % convergence_options["check_every"] == 0):
                 n_samp = len(samp_adjs)
                 n_burned_samp = int(np.floor(n_samp*burnin))
                 samps_to_use = np.array(samp_adjs[n_burned_samp:])
                 adj_mean = np.mean(samps_to_use,axis=0)
                 adj_var  = np.var(samps_to_use,axis=0)
-                chain_status_queue.put((adj_mean,adj_var))
-            else:
-                chain_status_queue.put([])
+                chain_status_queue.put((n_unreported,adj_mean,adj_var))
+                n_unreported = 0
+                last_report = time.perf_counter()
+            elif time.perf_counter() - last_report >= _STATUS_REPORT_INTERVAL:
+                chain_status_queue.put((n_unreported,None,None))
+                n_unreported = 0
+                last_report = time.perf_counter()
         if accept:
             accepted += 1
         old_samp = samp
+
+    #Report any trees sampled since the last message
+    if (chain_status_queue is not None) and (n_unreported > 0):
+        chain_status_queue.put((n_unreported,None,None))
 
     if nsamples > 1:
         accept_rate = accepted / (nsamples - 1)
@@ -567,7 +585,7 @@ def _run_chain(data, pairs_tensor, mut_ass, FPR, ADO, nsamples, thinned_frac, bu
 def gelman_rubin_convergence(chain_vars, chain_means, trees_per_chain, nchains):    
     meanall = np.mean(chain_means, axis=0)
     mean_wcv = np.mean(chain_vars, axis=0)
-    vom = np.zeros(chain_means.shape[1:], dtype=np.float)
+    vom = np.zeros(chain_means.shape[1:], dtype=float)
     for jj in range(0, nchains):
         vom += (meanall - chain_means[jj])**2/(nchains-1.)
     B = vom - mean_wcv/trees_per_chain
@@ -605,7 +623,7 @@ def sample_trees(sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, burn
         chain_status_queue = [manager.Queue() for i in range(nchains)]
         chain_means = np.zeros([nchains, n_mut+1, n_mut+1])
         chain_vars  = np.zeros([nchains, n_mut+1, n_mut+1])
-        n_sampled = 0
+        n_sampled = [0 for _ in range(nchains)]
 
         with progressbar(total=total, desc='Sampling trees', unit='tree', dynamic_ncols=True) as pbar:
             with concurrent.futures.ProcessPoolExecutor(max_workers=parallel, mp_context=multiprocessing.get_context("spawn")) as ex:
@@ -654,34 +672,38 @@ def sample_trees(sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, burn
                                 finished += 1
                     
                     if finished == nchains:
+                        #Read any remaining messages so that the progress bar reflects all sampled trees
+                        for C in range(nchains):
+                            while not chain_status_queue[C].empty():
+                                n_new, _, _ = chain_status_queue[C].get(block=False)
+                                n_sampled[C] += n_new
+                                pbar.update(n_new)
                         break
 
                     #Retrieve progress information from each chain, as stored in the queues.
-                    # If queue.get() results in an empty list, then we've simply sampled one more tree.
-                    # If queue.get() has two values, these are the mean and std of the adjacency matrices
-                    # of the trees sampled thus far. These can be used to determine if we have reached
-                    # convergence and thus can end tree sampling early.
-                    # Regardless of the returned value, we update the progress bar.
-                    # Note that queue.get() is weirdly slow, such that in low dimensions tree sampling is 
-                    # often faster than it. This means that the progress bar will often be behind the true
-                    # number of trees sampled and may not be at 100% when sampling finishes.
+                    # Each message is of the form (n_new_trees, adj_mean, adj_var). n_new_trees is the
+                    # number of trees the chain has sampled since its last message and is used to update
+                    # the progress bar. If adj_mean and adj_var are not None, they are the mean and variance
+                    # of the adjacency matrices of the post-burnin trees sampled thus far. These can be used
+                    # to determine if we have reached convergence and thus can end tree sampling early.
+                    # Note that queue.get() is weirdly slow, which is why chains batch their tree counts
+                    # rather than sending a message for every tree (see _STATUS_REPORT_INTERVAL).
                     while time.perf_counter() - last_check < 1:
                         for C in range(nchains):
                             if not chain_status_queue[C].empty():
-                                update = chain_status_queue[C].get(block=False)
-                                pbar.update()
-                                if len(update) == 0:
+                                n_new, mn, vr = chain_status_queue[C].get(block=False)
+                                n_sampled[C] += n_new
+                                pbar.update(n_new)
+                                if mn is None:
                                     continue
-                                mn, vr = update
-                                n_sampled = n_sampled + 1
                                 chain_means[C,:,:] = mn
                                 chain_vars[C,:,:] = vr
                     
                     #Using the chain means and variances, determine if the chains have converged onto the posterior
-                    if (convergence_options is not None) and (n_sampled*(1-burnin)*thinned_frac >= nchains*convergence_options["min_samples"]) and (not convergence_options["signal"].is_set()):
-                        gr_stat = gelman_rubin_convergence(chain_vars, chain_means, n_sampled*burnin, nchains)
+                    if (convergence_options is not None) and (min(n_sampled)*(1-burnin)*thinned_frac >= convergence_options["min_samples"]) and (not convergence_options["signal"].is_set()):
+                        gr_stat = gelman_rubin_convergence(chain_vars, chain_means, min(n_sampled)*(1-burnin)*thinned_frac, nchains)
                         conv_stat.append(gr_stat)
-                        converged = np.all(np.abs(1. - gr_stat) < convergence_options["threshold"])
+                        converged = np.all( gr_stat < convergence_options["threshold"])
                         if converged:
                             print("Chains have reached convergence! Stopping chains early.")
                             convergence_options["signal"].set()
