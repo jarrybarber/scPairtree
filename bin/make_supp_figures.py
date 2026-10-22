@@ -18,7 +18,7 @@ def _parse_args():
     )
     parser.add_argument('--seed', dest='seed', type=int,
         help='Integer seed used for pseudo-random number generator. Running scPairtree with the same seed on the same inputs will produce exactly the same result.')
-    parser.add_argument('--outdir', dest='outdir', default=None,
+    parser.add_argument('--outdir', dest='outdir', required=True,
         help='Directory in which to save the figures.')
     parser.add_argument('--act-tree-anc-fn', dest='act_tree_anc_fn',default=None,
         help='(Optional) File containing the ancestry matrix of the actual tree, if this tree is known.')
@@ -52,10 +52,12 @@ def _plot_err_est(fprs,ados,mut_ids,outdir):
     return
 
 
-def _plot_chain_llhs(llhs,n_chains,outdir,act_tree_llh): 
-    
+def _plot_chain_llhs(llhs,chain_n_samples,outdir,act_tree_llh):
+    #Chains may be of different lengths if MCMC convergence checking stopped them early
+    n_chains = len(chain_n_samples)
+    chain_starts = np.append(0, np.cumsum(chain_n_samples))
+
     plt.figure(figsize=(4*n_chains,8))
-    chain_lens = int(len(llhs)/n_chains)
     rng = np.max(llhs) - np.min(llhs)
     if act_tree_llh is not None:
         minmax = ( -0.05*rng + np.min(np.append(llhs,act_tree_llh)), 0.05*rng + np.max(np.append(llhs,act_tree_llh)))
@@ -64,9 +66,9 @@ def _plot_chain_llhs(llhs,n_chains,outdir,act_tree_llh):
     
     for i in range(n_chains):
         plt.subplot(1,n_chains,i+1)
-        plt.plot(llhs[i*chain_lens:(i+1)*chain_lens])
+        plt.plot(llhs[chain_starts[i]:chain_starts[i+1]])
         if act_tree_llh is not None:
-            plt.plot([0, chain_lens],[act_tree_llh,act_tree_llh], 'r--')
+            plt.plot([0, chain_n_samples[i]],[act_tree_llh,act_tree_llh], 'r--')
         plt.ylim(minmax)
         plt.title("Chain {}".format(str(i)))
     
@@ -118,6 +120,16 @@ def _plot_clustering_results(act_mut_clust_ass, est_mut_clust_ass, data, act_cel
     return
 
 
+def _make_clust_names(mut_clust_ass, mut_ids):
+    #Set cluster names to be based on the names of the muts they're made of
+    n_clusters = np.max(mut_clust_ass)
+    clust_names = []
+    for C in range(1,n_clusters+1):
+        muts_in_clust = mut_ids[np.nonzero(mut_clust_ass==C)]
+        clust_names.append( "\n".join([str(i) for i in np.sort(muts_in_clust)]) )
+    return clust_names
+
+
 def main():
 
     args = _parse_args()
@@ -126,15 +138,22 @@ def main():
 
     res = Results(args.results_fn)
 
-    scp_args = res.get('scp_args')
+    scp_args = res.get('scp_arguments')
     data = res.get('data')
-    mut_ids = res.get('mut_ids')
-    est_FPRs = res.get("est_FPRs")
-    est_ADOs = res.get("est_ADOs")
+    n_mut, n_cell = data.shape
+    mut_ids = np.asarray(res.get('mutation_ids'))
+    if res.has("est_FPRs") and res.has("est_ADOs"):
+        est_FPRs = res.get("est_FPRs")
+        est_ADOs = res.get("est_ADOs")
+    else:
+        #Error rates were input rather than estimated
+        est_FPRs = np.full(n_mut, scp_args['fpr'])
+        est_ADOs = np.full(n_mut, scp_args['adr'])
     est_mut_clust_ass = res.get("mutation_cluster_assignments")
     pairs_tensor = res.get("pairs_tensor")
     adjs = res.get("adj_mats")
     llhs = res.get("tree_llhs")
+    chain_n_samples = res.get("chain_n_samples")
     accept_rates = res.get("accept_rates")
     post_struct = res.get('struct')
     post_count = res.get('count')
@@ -144,50 +163,41 @@ def main():
         # dfpt_IS equivalent of a concensus graph
         dfpt_IS_adj_mat = res.get("dfpt_IS_adj_mat")
 
-    n_mut, n_cell = data.shape
     best_tree_ind = np.argmax(llhs)
     best_tree_adj = adjs[best_tree_ind]
 
+    if args.act_mut_clust_fn is not None:
+        act_mut_clust_ass = np.loadtxt(args.act_mut_clust_fn, dtype=int)
+        assert n_mut == len(act_mut_clust_ass)
+    else:
+        act_mut_clust_ass = None
+
     if args.act_tree_anc_fn is not None:
         act_tree_anc = np.loadtxt(args.act_tree_anc_fn, dtype=int)
-        if args.act_mut_clust_fn is not None:
-            act_mut_clust_ass = np.loadtxt(args.act_mut_clust_fn, dtype=int)
-            assert n_mut == len(act_mut_clust_ass)
+        if act_mut_clust_ass is not None:
+            act_tree_mut_ass = act_mut_clust_ass
         else:
             assert n_mut+1 == act_tree_anc.shape[0]
-            act_mut_clust_ass = np.arange(1,n_mut+1)
-        act_tree_llh = tree_util.calc_tree_llh(data, act_tree_anc, act_mut_clust_ass, est_FPRs, est_ADOs, scp_args['d_rng_i'])
-        n_clusters = np.max(act_mut_clust_ass)
-        clust_names = []
-        for C in range(1,n_clusters+1):
-            muts_in_clust = mut_ids[np.nonzero(act_mut_clust_ass==C)]
-            clust_names.append( "\n".join([str(int(i)) for i in np.sort(muts_in_clust)]) )
+            act_tree_mut_ass = np.arange(1,n_mut+1)
+        act_tree_llh = tree_util.calc_tree_llh(data, act_tree_anc, act_tree_mut_ass, est_FPRs, est_ADOs, scp_args['d_rng_i'])
         act_tree_adj = tree_util.convert_ancmatrix_to_adjmatrix(act_tree_anc)
-        fig = plot_tree(act_tree_adj, clust_names)
+        fig = plot_tree(act_tree_adj, _make_clust_names(act_tree_mut_ass, mut_ids))
         fig.savefig(os.path.join(args.outdir,"True tree"))
     else:
         act_tree_llh = None
-    
+
     if args.act_cell_clust_fn is not None:
         act_cell_clust_ass = np.loadtxt(args.act_cell_clust_fn, dtype=int)
     else:
         act_cell_clust_ass = None
 
-
-    #Set cluster names to be based on the names of the muts they're made of
-    n_clusters = np.max(est_mut_clust_ass)
-    clust_names = []
-    for C in range(1,n_clusters+1):
-        muts_in_clust = mut_ids[np.nonzero(est_mut_clust_ass==C)]
-        clust_names.append( "\n".join([str(int(i)) for i in np.sort(muts_in_clust)]) )
-    
-
     plot_best_model(pairs_tensor, outdir=args.outdir, save_name="pairs_matrix.png")
     _plot_err_est(est_FPRs,est_ADOs,mut_ids,args.outdir)
-    _plot_chain_llhs(llhs,scp_args['tree_chains'],args.outdir,act_tree_llh)
-    fig = plot_tree(best_tree_adj, clust_names)
+    _plot_chain_llhs(llhs,chain_n_samples,args.outdir,act_tree_llh)
+    fig = plot_tree(best_tree_adj, _make_clust_names(est_mut_clust_ass, mut_ids))
     fig.savefig(os.path.join(args.outdir,"Highest llh tree"))
-    _plot_clustering_results(act_mut_clust_ass, est_mut_clust_ass, data, act_cell_clust_ass, args.outdir)
+    if act_mut_clust_ass is not None:
+        _plot_clustering_results(act_mut_clust_ass, est_mut_clust_ass, data, act_cell_clust_ass, args.outdir)
 
     return
 
