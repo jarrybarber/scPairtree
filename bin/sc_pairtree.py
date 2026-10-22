@@ -10,7 +10,7 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
 # import hyperparams as hyperparams
 from util import load_data
-from error_rate_estimator import estimate_error_rates
+from error_rate_estimator import estimate_error_rates, estimate_phis
 from mutation_clusterer import cluster_mutations
 from pairs_tensor_constructor import construct_pairs_tensor
 from tree_sampler_MCMC import sample_trees, compute_posterior
@@ -273,6 +273,17 @@ def run(data_fn, d_rng_i, results_fn, **kwargs):
             fpr = np.full(data.shape[0],fpr)
         if np.isscalar(adr):
             adr = np.full(data.shape[0],adr)
+        # Mutation phis are normally estimated alongside the error rates, and are required for clustering.
+        est_mut_phis = None
+        if results.has("est_mut_phis"):
+            est_mut_phis = results.get("est_mut_phis")
+        elif args["cluster_mutations"]:
+            print("Estimating mutation phis...")
+            s = time.time()
+            est_mut_phis, _ = estimate_phis(data, fpr, adr, d_rng_i=d_rng_i)
+            results.add("phi_est_runtime", time.time()-s)
+            results.add("est_mut_phis", est_mut_phis)
+            results.save()
     else:
         print("Estimating error rates...")
         s = time.time()

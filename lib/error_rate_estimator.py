@@ -83,6 +83,39 @@ def _calc_to_min_val(fprs,adrs,phis,pairwise_occurances,d_rng_i):
     return -(non_garb_score)
 
 
+def _init_phis(data):
+    #Initial phi guesses based on the fraction of cells in which each mutation is observed
+    phi0s   = np.random.beta(np.sum(data==1,axis=1)+np.sum(data==2,axis=1)+_EPSILON, np.sum(data==0,axis=1)+_EPSILON)
+    phi0s[phi0s==1] = phi0s[phi0s==1] - 0.1*np.random.rand(len(phi0s[phi0s==1]))
+    phi0s[phi0s==0] = phi0s[phi0s==0] + 0.1*np.random.rand(len(phi0s[phi0s==0]))
+    return phi0s
+
+
+def estimate_phis(data, fprs, adrs, d_rng_i=DataRangeIdx.ref_var_nodata):
+    #Estimates the mutation phis in the same way as estimate_error_rates(), but with
+    #the error rates held constant at their input values. Useful when the error rates
+    #are known and so do not need to be estimated.
+    pairwise_occurances, _ = determine_all_mutation_pair_occurance_counts(data, d_rng_i)
+    n_mut = data.shape[0]
+    fprs = np.asarray(fprs, dtype=float)
+    adrs = np.asarray(adrs, dtype=float)
+    assert len(fprs) == n_mut
+    assert len(adrs) == n_mut
+
+    to_min = lambda x: _calc_to_min_val(fprs, adrs, x, pairwise_occurances, d_rng_i)
+    bounds = [(0.0,1.0)]*n_mut
+    x0 = _init_phis(data)
+
+    res = minimize(to_min,
+                x0=x0,
+                method="Powell",
+                bounds=bounds,
+                options={"disp":True, "maxiter": 1000*len(x0), 'xtol': 1e-6, 'ftol':1e-6},
+                )
+
+    return res.x, x0
+
+
 def estimate_error_rates(data, d_rng_i=DataRangeIdx.ref_var_nodata, variable_adr=True):
 
     pairwise_occurances, _ = determine_all_mutation_pair_occurance_counts(data, d_rng_i)
@@ -98,9 +131,7 @@ def estimate_error_rates(data, d_rng_i=DataRangeIdx.ref_var_nodata, variable_adr
         beta0s  = np.random.beta(4,100,1) 
 
     alpha0s = np.random.beta(11,1000,1)
-    phi0s   = np.random.beta(np.sum(data==1,axis=1)+np.sum(data==2,axis=1)+_EPSILON, np.sum(data==0,axis=1)+_EPSILON)
-    phi0s[phi0s==1] = phi0s[phi0s==1] - 0.1*np.random.rand(len(phi0s[phi0s==1]))
-    phi0s[phi0s==0] = phi0s[phi0s==0] + 0.1*np.random.rand(len(phi0s[phi0s==0]))
+    phi0s   = _init_phis(data)
     x0 = np.hstack([alpha0s,beta0s,phi0s])
 
     res = minimize(to_min,
