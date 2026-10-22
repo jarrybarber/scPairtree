@@ -38,11 +38,11 @@ def _parse_args():
 
     
     # Input and output files
-    parser.add_argument('--data-fn', dest='data_fn', 
+    parser.add_argument('--data-fn', dest='data_fn', required=True,
                         help='Path to the csv data file. This should contain an MxN genotype matrix, where M is the number of mutations and N is the number of cells.')
-    parser.add_argument('--results-fn', dest='results_fn', 
+    parser.add_argument('--results-fn', dest='results_fn', required=True,
                         help='Path to the output results file.')
-    parser.add_argument('--data-range', dest='d_rng_i', type=int,
+    parser.add_argument('--data-range', dest='d_rng_i', type=int, required=True,
                         help='''
                             Data range identifier. This value determines the range of possible values that each element in the genotype matrix can take. 
                             This identifier can be set to either 0,1 or 2, and these correspond to the following data ranges:
@@ -120,11 +120,11 @@ def _parse_args():
                         help='(Optional) The number of samples to take when performing dfpt sampling. Default: 100000')
 
     # Hyperparameter options
-    parser.add_argument('--gamma', dest='gamma', type=float, default=0.7,
+    parser.add_argument('--gamma', dest='gamma', type=float,
          help="Proportion of tree modifications that should use pairs-tensor-informed choice for node to move, rather than uniform choice. Default: 0.7")
-    parser.add_argument('--zeta', dest='zeta', type=float, default=0.7,
+    parser.add_argument('--zeta', dest='zeta', type=float,
          help="Proportion of tree modifications that should use pairs-tensor-informed choice for destination to move node to, rather than uniform choice. Default: 0.7")
-    parser.add_argument('--iota', dest='iota', type=float, default=0.7,
+    parser.add_argument('--iota', dest='iota', type=float,
          help="Probability of initializing an MCMC chain with a pairs-tensor-informed tree rather than a fully branching tree. Default: 0.7")
 
     args = parser.parse_args()
@@ -156,8 +156,8 @@ def _check_args_for_errors(args):
     if args['only_estimate_errors'] and args['fpr'] is not None and args['adr'] is not None:
         raise ValueError("The error rates have been input with the 'only_estimate_errors' flag set. Errors are not estimated when they are input, meaning these parameters result in no tasks being performed.")
     if args["convergence_threshold"] is not None or args["convergence_min_nsamples"] is not None or args["check_convergence_every"] is not None:
-        if args["convergence_threshold"] is None and args["convergence_min_nsamples"] is None and args["check_convergence_every"] is None:
-                raise ValueError("""Not all MCMC convergence criteria is set. Either all or none of the following options should be set:
+        if args["convergence_threshold"] is None or args["convergence_min_nsamples"] is None or args["check_convergence_every"] is None:
+                raise ValueError("""Not all MCMC convergence criteria are set. Either all or none of the following options should be set:
                                 - --convergence-threshold
                                 - --convergence-min-nsamples
                                 - --check-convergence-every""")
@@ -393,35 +393,10 @@ def main():
 
 
     ### RUN SCPAIRTREE ###
-    run(data_fn=args.data_fn,
-        mut_id_fn=args.mut_id_fn,
-        results_fn=args.results_fn,
-        d_rng_i=args.d_rng_i,
-        seed=args.seed,
-        parallel=args.parallel,
-        resume_run=args.resume_run,
-        only_estimate_errors=args.only_estimate_errors,
-        only_build_tensor=args.only_build_tensor,
-        cluster_mutations=args.cluster_mutations,
-        perform_dfpt_sampling=args.perform_dfpt_sampling,
-        skip_mcmc_tree_sampling=args.skip_mcmc_tree_sampling,
-        variable_adr=args.variable_adr,
-        n_clust_iter=args.n_clust_iter,
-        clust_dir_alpha=args.clust_dir_alpha,
-        trees_per_chain=args.trees_per_chain,
-        burnin=args.burnin,
-        tree_chains=args.tree_chains,
-        thinned_frac=args.thinned_frac,
-        convergence_threshold=args.convergence_threshold,
-        convergence_min_nsamples=args.convergence_min_nsamples,
-        check_convergence_every=args.check_convergence_every,
-        dfpt_nsamples=args.dfpt_nsamples,
-        fpr=args.fpr,
-        adr=args.adr,
-        gamma=args.gamma,
-        zeta=args.zeta,
-        iota=args.iota
-        )
+    # Only pass arguments the user actually set, so that unset arguments fall
+    # back to the values in DEFAULT_SCP_ARGS rather than being overwritten by None.
+    kwargs = {key: value for key, value in vars(args).items() if value is not None}
+    run(**kwargs)
 
 
 if __name__ == "__main__":
