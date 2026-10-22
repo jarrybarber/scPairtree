@@ -354,8 +354,7 @@ def cluster_mutations(data, fpr, adr, est_mut_phis, n_iter, burnin, pi_prior_alp
     
     #initialize the parameters we're sampling
     if init_method == "all_together":
-        #Just a single starting cluster    if hasattr(fpr, "__len__"):
-        fprs = np.copy(fpr)
+        #Just a single starting cluster
         phis = np.array([np.mean(est_mut_phis)])
         pis = np.zeros(n_mut,dtype=int)
         n_clust = 1

@@ -16,7 +16,7 @@ def p_model(model, inc_cocluster):
 @njit('f8(i1,f8,f8)', cache=True)
 def p_phi_given_model(model, phi_a, phi_b): #P(phi|M)
 
-    if (phi_a<0) or (phi_b<0) or (phi_b>1) or (phi_b>1):
+    if (phi_a<0) or (phi_b<0) or (phi_a>1) or (phi_b>1):
         return 0.0
     
     if model == Models.A_B:
@@ -47,7 +47,7 @@ def p_phi_given_model(model, phi_a, phi_b): #P(phi|M)
 @njit('f8(i1,f8,f8)', cache=True)
 def p_model_given_phi(model, phi_a, phi_b): #P(M|Phi) - Used in error rate estimation and mutation clustering
 
-    if (phi_a<0) or (phi_b<0) or (phi_b>1) or (phi_b>1):
+    if (phi_a<0) or (phi_b<0) or (phi_a>1) or (phi_b>1):
         return 0
     
     if model == Models.A_B:
@@ -227,7 +227,7 @@ def _log_p_cluster_data_given_model_phis_and_errors(model, pairwise_occurances, 
         for m2 in clust2_muts:
             assert m1 != m2
             log_p = log_p + _log_p_data_given_model_phis_and_errors(model, pairwise_occurances[:,:,m1,m2], fprs[m1], fprs[m2], ados[m1], ados[m2], phi1, phi2, d_rng_i)
-    log_p = log_p - np.log(phi_pri)*len(clust1_muts)*len(clust1_muts) #The prior only needs to be used once. Each call to log_p_data_given.. has the prior mult on it, so remove each extra instance of it.
+    log_p = log_p - np.log(phi_pri)*len(clust1_muts)*len(clust2_muts) #The prior only needs to be used once. Each call to log_p_data_given.. has the prior mult on it, so remove each extra instance of it.
     return log_p
 
 
