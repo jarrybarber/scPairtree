@@ -18,10 +18,24 @@ TreeSample = namedtuple('TreeSample', (
   'llh'
 ))
 
+# Message sent from each chain to the parent process via the chain's status queue.
+#   n_new_trees: number of trees sampled since the chain's last message. Used to
+#       update the progress bar and to track how many trees each chain has sampled.
+#   adj_mean, adj_var: mean and variance of the adjacency matrices of the post-burnin
+#       trees sampled thus far, used to check convergence. None unless this message
+#       is a convergence check.
+ChainStatus = namedtuple('ChainStatus', (
+  'n_new_trees',
+  'adj_mean',
+  'adj_var'
+))
+
 # Trees are often sampled faster than the parent process can read messages from
 # the chains' queues. So, rather than sending a message for every tree, each chain
 # sends the number of trees sampled since its last message at most this often (in
-# seconds), or whenever it reports convergence information.
+# seconds), or whenever it reports convergence information. Chains also check
+# whether they've been told to stop at this point, since checking a Manager Event
+# is as slow as using a Manager Queue.
 _STATUS_REPORT_INTERVAL = 0.1
 
 
@@ -474,22 +488,24 @@ def _init_chain(seed, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_id, hparams):
     return init_samp
 
 
-def _run_chain(data, pairs_tensor, mut_ass, FPR, ADO, nsamples, thinned_frac, burnin, seed, d_rng_id, hparams, chain_status_queue=None, convergence_options=None):
+def _run_chain(data, pairs_tensor, mut_ass, FPR, ADO, nsamples, thinned_frac, burnin, seed, d_rng_id, hparams, chain_status_queue=None, convergence_options=None, stop_signal=None):
 
     assert nsamples > 0
     assert 0 < thinned_frac <= 1
     if convergence_options is not None:
         assert chain_status_queue is not None
+    if stop_signal is not None:
+        assert chain_status_queue is not None
 
-    #Messages sent to chain_status_queue are of the form (n_new_trees, adj_mean, adj_var),
-    #where adj_mean and adj_var are None unless this is a convergence check.
-    #The initial tree counts as the first sample.
+    #ChainStatus messages are sent to chain_status_queue. The initial tree counts as the first sample.
     n_unreported = 1
     last_report = time.perf_counter()
 
     #set some useful variables
     record_every = round(1 / thinned_frac)
-    accepted = 0
+    #accepts[k] records whether the proposal made in iteration I=k+1 was accepted
+    accepts = []
+    stopped_early = False
     new_samp = _init_chain(seed, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_id, hparams)
     old_samp = new_samp
     best_samp = new_samp
@@ -498,10 +514,6 @@ def _run_chain(data, pairs_tensor, mut_ass, FPR, ADO, nsamples, thinned_frac, bu
     adj_mean = new_samp.adj
     adj_var = np.zeros(adj_mean.shape)
     for I in range(1, nsamples):
-        if (convergence_options is not None) and convergence_options["signal"].is_set() and (len(samp_llhs)*(1-burnin) >= convergence_options["min_samples"]):
-            #We have reached a point of convergence, so we can stop sampling trees early
-            break
-
         new_samp, log_p_new_given_old, log_p_old_given_new = _generate_new_sample(
             old_samp,
             data,
@@ -528,37 +540,55 @@ def _run_chain(data, pairs_tensor, mut_ass, FPR, ADO, nsamples, thinned_frac, bu
         if I % record_every == 0:
             samp_adjs.append(samp.adj)
             samp_llhs.append(samp.llh)
-            
+
+        accepts.append(accept)
+        old_samp = samp
+
         if (chain_status_queue is not None):
             n_unreported += 1
-            if (convergence_options is not None) and (I % convergence_options["check_every"] == 0):
-                n_samp = len(samp_adjs)
-                n_burned_samp = int(np.floor(n_samp*burnin))
-                samps_to_use = np.array(samp_adjs[n_burned_samp:])
-                adj_mean = np.mean(samps_to_use,axis=0)
-                adj_var  = np.var(samps_to_use,axis=0)
-                chain_status_queue.put((n_unreported,adj_mean,adj_var))
+            is_convergence_check = (convergence_options is not None) and (I % convergence_options["check_every"] == 0)
+            if is_convergence_check or (time.perf_counter() - last_report >= _STATUS_REPORT_INTERVAL):
+                if is_convergence_check:
+                    n_samp = len(samp_adjs)
+                    n_burned_samp = int(np.floor(n_samp*burnin))
+                    samps_to_use = np.array(samp_adjs[n_burned_samp:])
+                    adj_mean = np.mean(samps_to_use,axis=0)
+                    adj_var  = np.var(samps_to_use,axis=0)
+                    chain_status_queue.put(ChainStatus(n_new_trees=n_unreported, adj_mean=adj_mean, adj_var=adj_var))
+                else:
+                    chain_status_queue.put(ChainStatus(n_new_trees=n_unreported, adj_mean=None, adj_var=None))
                 n_unreported = 0
                 last_report = time.perf_counter()
-            elif time.perf_counter() - last_report >= _STATUS_REPORT_INTERVAL:
-                chain_status_queue.put((n_unreported,None,None))
-                n_unreported = 0
-                last_report = time.perf_counter()
-        if accept:
-            accepted += 1
-        old_samp = samp
+
+                if (stop_signal is not None) and stop_signal.is_set():
+                    #The parent process has told the chains to stop, e.g. because another chain failed
+                    stopped_early = True
+                    break
+                if (convergence_options is not None) and convergence_options["signal"].is_set():
+                    #We have reached a point of convergence, so we can stop sampling trees early.
+                    #The parent only sets the signal once every chain has at least min_samples post-burnin samples.
+                    stopped_early = True
+                    break
 
     #Report any trees sampled since the last message
     if (chain_status_queue is not None) and (n_unreported > 0):
-        chain_status_queue.put((n_unreported,None,None))
+        chain_status_queue.put(ChainStatus(n_new_trees=n_unreported, adj_mean=None, adj_var=None))
 
-    if nsamples > 1:
-        accept_rate = accepted / (nsamples - 1)
+    #Only consider post-burnin proposals when calculating the acceptance rate. Burnin is
+    #applied to the recorded samples in sample_trees(), so use the same rule here to find
+    #the first kept sample. Recorded sample n was sampled in iteration I=n*record_every,
+    #so post-burnin proposals are those made in the iterations following it.
+    n_discard = round(burnin * len(samp_adjs))
+    post_burnin_accepts = accepts[n_discard*record_every:]
+    if len(post_burnin_accepts) > 0:
+        accept_rate = np.mean(post_burnin_accepts)
+    elif len(accepts) > 0:
+        accept_rate = np.mean(accepts)
     else:
         accept_rate = 1.
     
     assert len(samp_adjs) == len(samp_llhs)
-    if convergence_options is None:
+    if not stopped_early:
         # Why is `expected_total_trees` equal to this?
         #
         # We always take the first tree, since `0%k = 0` for all `k`. There remain
@@ -621,6 +651,8 @@ def sample_trees(sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, burn
             assert "check_every" in convergence_options.keys() 
             convergence_options["signal"] = manager.Event()
         chain_status_queue = [manager.Queue() for i in range(nchains)]
+        # Used to tell all chains to stop, e.g. if one of them fails.
+        stop_signal = manager.Event()
         chain_means = np.zeros([nchains, n_mut+1, n_mut+1])
         chain_vars  = np.zeros([nchains, n_mut+1, n_mut+1])
         n_sampled = [0 for _ in range(nchains)]
@@ -630,83 +662,70 @@ def sample_trees(sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, burn
                 for C in range(nchains):
                     # Ensure each chain's random seed is different from the seed used to
                     # seed the initial scPairtree invocation, yet nonetheless reproducible.
-                    jobs.append(ex.submit(_run_chain, sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, thinned_frac, burnin, seed + C + 1, d_rng_id, hparams, chain_status_queue[C], convergence_options))
+                    jobs.append(ex.submit(_run_chain, sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, thinned_frac, burnin, seed + C + 1, d_rng_id, hparams, chain_status_queue[C], convergence_options, stop_signal))
 
-                while True:
-                    finished = 0
-                    last_check = time.perf_counter()
-                    
-                    #check to see if the jobs are done
+                try:
+                    while True:
+                        finished = 0
+                        last_check = time.perf_counter()
+                        
+                        #check to see if the jobs are done
+                        for J in jobs:
+                            if J.done():
+                                exception = J.exception(timeout=0.001)
+                                if exception is not None:
+                                    # Re-raise the exception from the parent process. The except
+                                    # block below tells the remaining chains to stop so that we
+                                    # don't have to wait for them to finish sampling before crashing.
+                                    print('Exception occurred in child process:', exception, file=sys.stderr)
+                                    raise exception
+                                else:
+                                    finished += 1
+                        
+                        if finished == nchains:
+                            #Read any remaining messages so that the progress bar reflects all sampled trees
+                            for C in range(nchains):
+                                while not chain_status_queue[C].empty():
+                                    status = chain_status_queue[C].get(block=False)
+                                    n_sampled[C] += status.n_new_trees
+                                    pbar.update(status.n_new_trees)
+                            break
+
+                        #Retrieve progress information (see ChainStatus) from each chain, as stored in the queues.
+                        # Note that queue.get() is weirdly slow, which is why chains batch their tree counts
+                        # rather than sending a message for every tree (see _STATUS_REPORT_INTERVAL).
+                        while time.perf_counter() - last_check < 1:
+                            for C in range(nchains):
+                                if not chain_status_queue[C].empty():
+                                    status = chain_status_queue[C].get(block=False)
+                                    n_sampled[C] += status.n_new_trees
+                                    pbar.update(status.n_new_trees)
+                                    if status.adj_mean is None:
+                                        continue
+                                    chain_means[C,:,:] = status.adj_mean
+                                    chain_vars[C,:,:] = status.adj_var
+                        
+                        #Using the chain means and variances, determine if the chains have converged onto the posterior
+                        if (convergence_options is not None) and (min(n_sampled)*(1-burnin)*thinned_frac >= convergence_options["min_samples"]) and (not convergence_options["signal"].is_set()):
+                            gr_stat = gelman_rubin_convergence(chain_vars, chain_means, min(n_sampled)*(1-burnin)*thinned_frac, nchains)
+                            conv_stat.append(gr_stat)
+                            converged = np.all( gr_stat < convergence_options["threshold"])
+                            if converged:
+                                print("Chains have reached convergence! Stopping chains early.")
+                                convergence_options["signal"].set()
+                except BaseException:
+                    # A chain failed or the user interrupted (e.g., Ctrl-C). Leaving the
+                    # ProcessPoolExecutor block waits for all running chains to finish, so
+                    # cancel the chains that haven't started and tell the running ones to stop.
                     for J in jobs:
-                        if J.done():
-                            exception = J.exception(timeout=0.001)
-                            if exception is not None:
-                                # Ideally, if an exception occurs in a child process, we'd like
-                                # to re-raise the exception from the parent process and cause
-                                # the application to crash immediately. However,
-                                # `concurrent.futures` will wait until all child processes
-                                # terminate (either because they finished successfully or
-                                # suffered an exception) to raise the exception from the parent
-                                # process. If an exception occurs in the child process, it
-                                # would normally be raised automatically when we call
-                                # `J.result()` below; however, since we're in a loop, we must
-                                # break out of the loop, which we can do so by explicitly
-                                # re-raising the exception.
-                                #
-                                # Note that the `print()` call will happen immediately, so the
-                                # user will be notified as soon as the error occurs. Actually
-                                # raising the exception and crashing the application will not
-                                # occur, however, until all child processes finish. When the
-                                # `raise` happens below, the parent process will effectively
-                                # freeze at that statement until all child processes finish,
-                                # such that the progress bar stops updating. Ideally, we could
-                                # terminate all child processes when we detect the exception,
-                                # but we would have to do this manually by sending SIGTERM to
-                                # the processes. It's evidently impossible to get the PIDs of
-                                # the child processes without installing `psutil`, so we will
-                                # just allow the application to wait until child processes
-                                # finish before crashing.
-                                print('Exception occurred in child process:', exception, file=sys.stderr)
-                                raise exception
-                            else:
-                                finished += 1
-                    
-                    if finished == nchains:
-                        #Read any remaining messages so that the progress bar reflects all sampled trees
-                        for C in range(nchains):
-                            while not chain_status_queue[C].empty():
-                                n_new, _, _ = chain_status_queue[C].get(block=False)
-                                n_sampled[C] += n_new
-                                pbar.update(n_new)
-                        break
-
-                    #Retrieve progress information from each chain, as stored in the queues.
-                    # Each message is of the form (n_new_trees, adj_mean, adj_var). n_new_trees is the
-                    # number of trees the chain has sampled since its last message and is used to update
-                    # the progress bar. If adj_mean and adj_var are not None, they are the mean and variance
-                    # of the adjacency matrices of the post-burnin trees sampled thus far. These can be used
-                    # to determine if we have reached convergence and thus can end tree sampling early.
-                    # Note that queue.get() is weirdly slow, which is why chains batch their tree counts
-                    # rather than sending a message for every tree (see _STATUS_REPORT_INTERVAL).
-                    while time.perf_counter() - last_check < 1:
-                        for C in range(nchains):
-                            if not chain_status_queue[C].empty():
-                                n_new, mn, vr = chain_status_queue[C].get(block=False)
-                                n_sampled[C] += n_new
-                                pbar.update(n_new)
-                                if mn is None:
-                                    continue
-                                chain_means[C,:,:] = mn
-                                chain_vars[C,:,:] = vr
-                    
-                    #Using the chain means and variances, determine if the chains have converged onto the posterior
-                    if (convergence_options is not None) and (min(n_sampled)*(1-burnin)*thinned_frac >= convergence_options["min_samples"]) and (not convergence_options["signal"].is_set()):
-                        gr_stat = gelman_rubin_convergence(chain_vars, chain_means, min(n_sampled)*(1-burnin)*thinned_frac, nchains)
-                        conv_stat.append(gr_stat)
-                        converged = np.all( gr_stat < convergence_options["threshold"])
-                        if converged:
-                            print("Chains have reached convergence! Stopping chains early.")
-                            convergence_options["signal"].set()
+                        J.cancel()
+                    try:
+                        stop_signal.set()
+                    except Exception:
+                        # The manager process may already be gone, e.g. after Ctrl-C, in which
+                        # case the chains will have received the interrupt themselves.
+                        pass
+                    raise
         results = [J.result() for J in jobs]
     else:
         results = []
