@@ -161,6 +161,8 @@ def _check_args_for_errors(args):
                                 - --convergence-threshold
                                 - --convergence-min-nsamples
                                 - --check-convergence-every""")
+        if args["parallel"] < 1:
+            raise ValueError("MCMC convergence checking requires the chains to run in parallel. Either set --parallel to at least 1 or remove the convergence options.")
     return
 
 def _init_arguments(data_fn, d_rng_i, results_fn, input_kwargs, old_args):
@@ -235,6 +237,8 @@ def run(data_fn, d_rng_i, results_fn, **kwargs):
     
     args = _init_arguments(data_fn, d_rng_i, results_fn, kwargs, old_args)
     _check_args_for_errors(args)
+    # When resuming a run, the data range used in the original run takes precedence over the input one.
+    d_rng_i = args["d_rng_i"]
 
     results.add("scp_arguments", args)
     results.save()

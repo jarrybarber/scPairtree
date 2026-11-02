@@ -627,6 +627,9 @@ def sample_trees(sc_data, pairs_tensor, mut_ass, FPR, ADO, trees_per_chain, burn
     assert trees_per_chain > 0
     assert 0 <= burnin <= 1
     assert 0 < thinned_frac <= 1
+    if (convergence_options is not None) and (parallel < 1):
+        # Convergence is checked by comparing the chains while they run, which can't be done when they run one after another.
+        raise ValueError("MCMC convergence checking requires the chains to run in parallel. Either set parallel to at least 1 or set convergence_options to None.")
 
     jobs = []
     total = nchains * trees_per_chain
