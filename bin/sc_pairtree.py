@@ -43,7 +43,7 @@ def _parse_args():
     parser.add_argument('--results-fn', dest='results_fn', required=True,
                         help='Path to the output results file.')
     parser.add_argument('--data-range', dest='d_rng_i', type=int, required=True,
-                        help='''
+                        help=r'''
                             Data range identifier. This value determines the range of possible values that each element in the genotype matrix can take. 
                             This identifier can be set to either 0,1 or 2, and these correspond to the following data ranges:
                                 - 0: G_ij \in {0,1} where 
