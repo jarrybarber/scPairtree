@@ -98,58 +98,6 @@ def _sample_cat(W):
         assert cw <= 1
     return -1
 
-def _init_cluster_adj_mutrels(pairs_tensor):
-    K = pairs_tensor.shape[0] + 1
-    adj = np.eye(K, dtype=np.int8)
-    in_tree = set((0,))
-    remaining = set(range(1, K))
-
-    W_nodes = np.zeros(K)
-
-    while len(remaining) > 0:
-        nodeidxs = np.array(sorted(remaining))
-        relidxs = nodeidxs - 1
-        assert np.all(relidxs >= 0)
-        anc_logprobs = pairs_tensor[np.ix_(relidxs, relidxs)][:,:,Models.A_B]
-        # These values are currently -inf, but we must replace these so that joint
-        # probabilities of being ancestral to remaining don't all become 0.
-        np.fill_diagonal(anc_logprobs, 0)
-
-        assert anc_logprobs.shape == (len(remaining), len(remaining))
-        log_W_nodes_remaining = np.sum(anc_logprobs, axis=1)
-        # Use really "soft" softmax.
-        W_nodes[nodeidxs] = _scaled_softmax(log_W_nodes_remaining)
-
-        # Root should never be selected.
-        assert W_nodes[0] == 0
-        assert np.isclose(1, np.sum(W_nodes))
-        assert np.all(W_nodes[list(in_tree)] == 0)
-        nidx = _sample_cat(W_nodes)
-
-        log_W_parents = np.full(K, -np.inf)
-        others = np.array(sorted(remaining - set((nidx,))))
-        truncated_pairs_tensor = util.remove_rowcol(pairs_tensor,others-1)
-    
-        for parent in in_tree:
-            new_adj = np.copy(adj)
-            new_adj[parent,nidx] = 1
-            truncated_adj = util.remove_rowcol(new_adj, others)
-            tree_logmutrel = _calc_tree_logmutrel(truncated_adj, truncated_pairs_tensor)
-            log_W_parents[parent] = np.sum(np.triu(tree_logmutrel))
-        W_parents = _scaled_softmax(log_W_parents)
-        assert np.all(W_parents[nodeidxs] == 0)
-        pidx = _sample_cat(W_parents)
-        adj[pidx,nidx] = 1
-
-        remaining.remove(nidx)
-        in_tree.add(nidx)
-        W_nodes[nidx] = 0
-
-    assert np.all(W_nodes == 0)
-    assert len(in_tree) == K
-    assert len(remaining) == 0
-    return adj
-
 def _init_adj_branching(K):
     #NOTE: This code was copied from Jeff's tree_sampler.py
 
@@ -463,7 +411,6 @@ def _init_chain(seed, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_id, hparams):
     util.seed_numba_rng(seed % 2**32)
 
     if np.random.uniform() < hparams['iota']:
-        # init_adj = _init_cluster_adj_mutrels(pairs_tensor)
         init_tree, _ = init_tree_sample_DFPT(pairs_tensor,1,True,None,show_progress=False)
         init_adj = tree_util.convert_parents_to_adjmatrix(init_tree.flatten())
     else:

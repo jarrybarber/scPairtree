@@ -1,19 +1,8 @@
 import os
 import numpy as np
 from numba import njit
-from collections import namedtuple
 
 from common import DataRange
-
-#Note, this may work better as a pandas object so that any sorting of 
-#snvs and cells automatically works when sorting data matrix.
-_Data = namedtuple('_Data', (
-  'data',
-  'n_snvs',
-  'n_cells',
-  'snv_ids',
-  #'cell_ids' #Not implemented yet
-))
 
 #Should work as long as util.py is in the bin folder
 LIB_DIR  = os.path.dirname(os.path.realpath(__file__))
@@ -21,12 +10,6 @@ BASE_DIR = os.path.dirname(LIB_DIR)
 DATA_DIR = os.path.join(BASE_DIR,"data")
 OUT_DIR  = os.path.join(BASE_DIR,"out")
 RUNS_DIR = os.path.join(BASE_DIR,"runs")
-
-#I will be calcuating these values a lot, and it will be faster to store their values in a list
-_MAX_NCELLS = 100000
-LOG_FACTORIALS = np.zeros(_MAX_NCELLS, dtype=float)
-for j in range(2,_MAX_NCELLS):
-    LOG_FACTORIALS[j] = np.log(j) + LOG_FACTORIALS[j-1]
 
 def load_data(fn, data_dir=None):
     #Loads a data file without column or row labels.
@@ -43,20 +26,6 @@ def load_data(fn, data_dir=None):
     #     mut_ids = np.arange(1,data.shape[0]+1)
 
     return data #, mut_ids
-
-
-def load_sim_data(fn):
-    data = []
-    snv_ids = []
-    count = 0
-    to_open = os.path.join(DATA_DIR,"simulated",fn)
-    with open(to_open,'r') as f:
-        for row in f.readlines():
-            entries = row.replace("\n","").split("\t")
-            data.append([int(i) for i in entries])
-            snv_ids.append('s' + str(count))
-            count += 1
-    return _Data(data=np.array(data),n_snvs=len(data),n_cells=len(data[0]),snv_ids=snv_ids)
 
 
 def determine_all_cluster_pair_occurance_counts(data, clust_ass, d_rng_i):
@@ -104,38 +73,6 @@ def determine_mutation_pair_occurance_counts(data,pair_val):
 
 
 
-#The below is used in bin/make_supp_figures.py
-#Shouldn't work as it is since the assertion that n_muts == n_nodes is clearly wrong.
-#But will define it for now so that some code can work...
-def convert_nodeadj_to_mutadj(node_adj, mut_assignments):
-    pass
-    # print(len(mut_assignments),node_adj.shape[0]-1)
-    # assert len(mut_assignments) == node_adj.shape[0]-1
-    # mutadj = np.zeros(node_adj.shape,dtype=int)
-    # mut_assignments = np.append(0,mut_assignments)
-    # node_assignments = np.zeros(mut_assignments.shape,dtype=int)
-    # for i,a in enumerate(mut_assignments):
-    #     node_assignments[a] = i
-    # for par, chld in np.argwhere(node_adj):
-    #     mutadj[node_assignments[par], node_assignments[chld]] = 1
-    # return mutadj
-
-#see description above
-def convert_mutadj_to_nodeadj(mut_adj, mut_assignments):
-    pass
-#     assert len(mut_assignments) == mut_adj.shape[0]-1
-#     node_adj = np.zeros(mut_adj.shape,dtype=int)
-#     mut_assignments = np.append(0,mut_assignments)
-#     for par, chld in np.argwhere(mut_adj):
-#         node_adj[mut_assignments[par], mut_assignments[chld]] = 1
-#     return node_adj
-
-def calc_tensor_prob(tensor):
-    #Should be 3 axis: 1st for models, 2nd and 3rd for SNV comps
-    #I assume all values are logged.
-    assert not np.any(tensor==0)
-    return np.sum(numba_logsumexp(tensor,axis=0))
-
 @njit(cache=True)
 def seed_numba_rng(seed):
     #Numba-compiled functions use their own random number generator, which isn't seeded
@@ -159,11 +96,6 @@ def softmax(V):
     return smax
 
 @njit(cache=True)
-def log_factorial(i):
-    assert i < len(LOG_FACTORIALS)
-    return LOG_FACTORIALS[i]
-
-@njit(cache=True)
 def isclose(a,b,atol=1e-8,rtol=1e-5):
     return np.abs(a-b)<(atol + rtol*np.abs(b))
 
@@ -175,31 +107,6 @@ def find_first(item, vec):
             return i
     return -1
 
-
-def remove_rowcol(arr, indices):
-    #NOTE: taken from Jeff's util code
-    '''Remove rows and columns at `indices`.'''
-    # Calling `np.delete` with `indices` as an empty array produces an exception
-    # in Python 3.8 but not 3.7.
-    if len(indices) == 0:
-        return np.copy(arr)
-    # Using a mask requires only creating a new array once (and then presumably
-    # another array to apply the mask). Calling np.delete() multiple times would
-    # create separate arrays for every element in `indices`.
-    shape = list(arr.shape)
-    # Must convert to list *before* array, as indices is often a set, and
-    # converting a set directly to an array yields a dtype of `object` that
-    # contains the set. It's really weird.
-    indices = np.array(list(indices))
-    # Only check the first two dimensions, as we ignore all others.
-    assert np.all(0 <= indices) and np.all(indices < min(shape[:2]))
-
-    for axis in (0, 1):
-        arr = np.delete(arr, indices, axis=axis)
-        shape[axis] -= len(indices)
-
-    assert np.array_equal(arr.shape, shape)
-    return arr
 
 @njit(cache=True)
 def numba_logsumexp(V):

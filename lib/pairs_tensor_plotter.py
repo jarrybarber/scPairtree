@@ -149,18 +149,3 @@ def plot_anc_n_cocl_comparisons(scores,outdir,save_name="anc_to_cocluster.png"):
     plt.savefig(os.path.join(outdir,save_name))
     plt.close()
     return
-
-
-def plot_anc_n_dec_comparisons(scores,outdir,save_name="anc_to_dec.png"):
-    nSSMs = scores.shape[1]
-    comp = ((scores[0,:,:] - scores[1,:,:])).reshape(nSSMs,nSSMs)
-    fig = plt.figure()
-    ax = fig.add_axes([0.1,0.1,0.8,0.8])
-    plt.imshow(comp,cmap='seismic')
-    plt.title("(M1-M2)")
-    plt.xlabel("B")
-    plt.ylabel("A")
-    plt.colorbar()
-    plt.savefig(os.path.join(outdir,save_name))
-    plt.close()
-    return
