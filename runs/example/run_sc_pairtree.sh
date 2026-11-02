@@ -16,7 +16,10 @@ function run {
     filename=M50_N200_K50_fpr0.0001_adr0.2_seed1000
     data_fn=$DATADIR/$filename.data
     mut_id_fn=$DATADIR/$filename.cluster_assignments_muts
+    cell_id_fn=$DATADIR/$filename.cluster_assignments_cells
+    act_tree_anc_fn=$DATADIR/$filename.actual_anc_mat
     out_fn=$RESDIR/$filename
+    supp_fig_dir=$RESDIR/supp_figs
     
     python $SCP_BINDIR/sc_pairtree.py \
                         --data-fn $data_fn \
@@ -34,7 +37,13 @@ function run {
                         $out_fn \
                         $RESDIR/$filename.summary.html
 
-
+    python  $SCP_BINDIR/make_supp_figures.py \
+                        $out_fn \
+                        --seed $seed \
+                        --outdir $supp_fig_dir \
+                        --act-tree-anc-fn $act_tree_anc_fn \
+                        --act-mut-clust-fn $mut_id_fn \
+                        --act-cell-clust-fn $cell_id_fn
 }
 
 function main {

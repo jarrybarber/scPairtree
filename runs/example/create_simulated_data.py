@@ -6,6 +6,7 @@ scp_dir = os.path.abspath(os.path.join(ex_dir,"../.."))
 sys.path.append(os.path.abspath(os.path.join(scp_dir,"lib")))
 sys.path.append(os.path.abspath(os.path.join(scp_dir,"bin")))
 from data_simulator import generate_simulated_data
+from tree_util import convert_adjmatrix_to_ancmatrix
 import tree_plotter
 
 
@@ -30,6 +31,7 @@ def main():
     data, true_tree  = generate_simulated_data(n_clust=n_clust,n_mut=n_mut,n_cell=n_cell,FPR=fpr,ADR=adr,cell_alpha=1,mut_alpha=1,drange=d_rng_i)
     noise_free_data  = true_tree[0]
     adj_mat          = true_tree[1]
+    anc_mat          = convert_adjmatrix_to_ancmatrix(adj_mat)
     cell_assignments = true_tree[2]
     mut_assignments  = true_tree[3]
 
@@ -49,6 +51,7 @@ def main():
     np.savetxt(fn+".data", data, "%d")
     np.savetxt(fn+".noise_free_data", noise_free_data, "%d")
     np.savetxt(fn+".actual_adj_mat", adj_mat, "%d")
+    np.savetxt(fn+".actual_anc_mat", anc_mat, "%d")
     np.savetxt(fn+".cluster_assignments_muts", mut_assignments, "%d")
     np.savetxt(fn+".cluster_assignments_cells", cell_assignments, "%d")
 
