@@ -7,7 +7,7 @@ import itertools
 import tree_util
 
 from common import Models, NUM_MODELS
-from util import numba_logsumexp
+from util import numba_logsumexp, seed_numba_rng
 # from tree_util import calc_tree_llh, convert_ancmatrix_to_parents, convert_parents_to_adjmatrix, convert_adjmatrix_to_ancmatrix, compute_node_relations
 from progressbar import progressbar
 
@@ -250,8 +250,8 @@ def _sample_rel(selection_probs):
     return rel, log_sel_prob
 
 
-numba.njit(cache=True)
-def _sample_tree(pairs_tensor, rng_i, rng_j, status=None):
+@numba.njit(cache=True)
+def _sample_tree(pairs_tensor, rng_i, rng_j):
     n_mut = pairs_tensor.shape[0]
     anc = np.full((n_mut+1,n_mut+1), -1, np.int8)
     anc[0,:] = 1
@@ -267,20 +267,25 @@ def _sample_tree(pairs_tensor, rng_i, rng_j, status=None):
         log_samp_prob += log_sel_prob
         _propogate_rules(anc,i,j,rel,selection_probs)
 
-    if status is not None:
-        status.put(True)
-
     return tree_util.convert_ancmatrix_to_parents(anc), log_samp_prob
 
-numba.njit(cache=True)
-def _sample_trees(pairs_tensor, rng_i, rng_j, n_samples, status=None):
+@numba.njit(cache=True)
+def _sample_trees(pairs_tensor, rng_i, rng_j, n_samples):
     n_mut = pairs_tensor.shape[0]
-    trees = np.zeros((n_samples, n_mut), dtype=int)
+    trees = np.zeros((n_samples, n_mut), dtype=np.int64)
     tree_log_probs = np.zeros(n_samples)
     for i in range(n_samples):
-        tree, tree_log_prob = _sample_tree(pairs_tensor, rng_i, rng_j, status)
+        tree, tree_log_prob = _sample_tree(pairs_tensor, rng_i, rng_j)
         trees[i,:] = tree
         tree_log_probs[i] = tree_log_prob
+    return trees, tree_log_probs
+
+def _sample_trees_and_report(pairs_tensor, rng_i, rng_j, n_samples, status, seed):
+    #Each chunk is seeded separately so that results don't depend on which worker process samples which chunk.
+    seed_numba_rng(seed)
+    #Numba-compiled code can't use the status queue, so report progress once the whole chunk has been sampled
+    trees, tree_log_probs = _sample_trees(pairs_tensor, rng_i, rng_j, n_samples)
+    status.put(n_samples)
     return trees, tree_log_probs
 
 def _calc_sample_llhs(samples, data, mut_ass, fprs, ados, d_rng_i):
@@ -313,7 +318,9 @@ def calc_sample_llhs(samples, data, mut_ass, fprs, ados, d_rng_i, parallel=None)
     return llhs
 
 
-def sample_trees(pairs_tensor, n_samples, order_by_certainty=True, parallel=None):
+def sample_trees(pairs_tensor, n_samples, order_by_certainty=True, parallel=None, show_progress=True, seed=None):
+    #If seed is None, the serial path continues from the current state of numba's random number
+    #generator and the parallel path draws the seed for each chunk from NumPy's global generator.
     #Only use the pairs_tensor which has been normalized ignoring cocluster and garbage models, since we do not want to select them.
     n_mut = pairs_tensor.shape[0]
     # assert np.all(pairs_tensor[:,:,Models.cocluster] == -np.inf)
@@ -340,11 +347,16 @@ def sample_trees(pairs_tensor, n_samples, order_by_certainty=True, parallel=None
     trees = np.zeros((n_samples, n_mut), dtype=int)
     tree_log_probs = np.zeros(n_samples)
     
-    if parallel is None:
-        with progressbar(total=n_samples, desc='Sampling trees', unit='tree', dynamic_ncols=True) as pbar:
-            for i in range(n_samples):
-                trees[i,:], tree_log_probs[i] = _sample_tree(selection_probs, rng_i, rng_j)
-                pbar.update()
+    if not parallel:
+        if seed is not None:
+            seed_numba_rng(seed)
+        if show_progress:
+            with progressbar(total=n_samples, desc='Sampling trees', unit='tree', dynamic_ncols=True) as pbar:
+                for i in range(n_samples):
+                    trees[i,:], tree_log_probs[i] = _sample_tree(selection_probs, rng_i, rng_j)
+                    pbar.update()
+        else:
+            trees[:,:], tree_log_probs[:] = _sample_trees(selection_probs, rng_i, rng_j, n_samples)
     else:
         manager = multiprocessing.Manager()
         sample_status_queue = manager.Queue()
@@ -352,10 +364,15 @@ def sample_trees(pairs_tensor, n_samples, order_by_certainty=True, parallel=None
         
         jobs = []
         chunksize = int(np.max([1,np.min([100, np.ceil(n_samples/parallel)])]))
-        for i in range(int(np.floor(n_samples/chunksize))):
-            jobs.append(pool.apply_async(_sample_trees, args=(selection_probs, rng_i, rng_j, chunksize, sample_status_queue)))
+        n_full_chunks = int(np.floor(n_samples/chunksize))
+        if seed is not None:
+            chunk_seeds = np.random.SeedSequence(seed).generate_state(n_full_chunks + 1)
+        else:
+            chunk_seeds = np.random.randint(2**32, size=n_full_chunks + 1, dtype=np.uint64)
+        for i in range(n_full_chunks):
+            jobs.append(pool.apply_async(_sample_trees_and_report, args=(selection_probs, rng_i, rng_j, chunksize, sample_status_queue, int(chunk_seeds[i]))))
         remainder = n_samples % chunksize
-        jobs.append(pool.apply_async(_sample_trees, args=(selection_probs, rng_i, rng_j, remainder, sample_status_queue)))
+        jobs.append(pool.apply_async(_sample_trees_and_report, args=(selection_probs, rng_i, rng_j, remainder, sample_status_queue, int(chunk_seeds[-1]))))
         pool.close()
 
         with progressbar(total=n_samples, desc='Sampling trees', unit='tree', dynamic_ncols=True) as pbar:
@@ -366,10 +383,10 @@ def sample_trees(pairs_tensor, n_samples, order_by_certainty=True, parallel=None
                     break
                 try:
                     # If there's something in the queue for us to retrieve, a child
-                    # process has sampled a tree.
-                    sample_status_queue.get(timeout=1)
-                    n_sampled += 1
-                    pbar.update()
+                    # process has finished sampling a chunk of trees.
+                    n_new = sample_status_queue.get(timeout=1)
+                    n_sampled += n_new
+                    pbar.update(n_new)
 
                 except queue.Empty:
                     time.sleep(0.5)

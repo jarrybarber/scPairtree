@@ -137,6 +137,13 @@ def calc_tensor_prob(tensor):
     return np.sum(numba_logsumexp(tensor,axis=0))
 
 @njit(cache=True)
+def seed_numba_rng(seed):
+    #Numba-compiled functions use their own random number generator, which isn't seeded
+    #by calling np.random.seed() from regular Python code. Calling it from within a compiled
+    #function seeds numba's generator (for the current process) instead.
+    np.random.seed(seed)
+
+@njit(cache=True)
 def softmax(V):
     #Note: taken from Jeff's util code
     B = np.max(V)

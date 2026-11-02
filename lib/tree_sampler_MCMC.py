@@ -460,10 +460,11 @@ def _init_chain(seed, data, pairs_tensor, mut_ass, FPR, ADO, d_rng_id, hparams):
     # random seed to seed a new chain, so I must ensure that the seed is still in
     # the valid range [0, 2**32).
     np.random.seed(seed % 2**32)
+    util.seed_numba_rng(seed % 2**32)
 
     if np.random.uniform() < hparams['iota']:
         # init_adj = _init_cluster_adj_mutrels(pairs_tensor)
-        init_tree, _ = init_tree_sample_DFPT(pairs_tensor,1,True,None)
+        init_tree, _ = init_tree_sample_DFPT(pairs_tensor,1,True,None,show_progress=False)
         init_adj = tree_util.convert_parents_to_adjmatrix(init_tree.flatten())
     else:
         # Particularly since clusters may not be ordered by mean VAF, a branching

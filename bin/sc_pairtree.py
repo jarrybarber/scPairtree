@@ -9,7 +9,7 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
 # import hyperparams as hyperparams
-from util import load_data
+from util import load_data, seed_numba_rng
 from error_rate_estimator import estimate_error_rates, estimate_phis
 from mutation_clusterer import cluster_mutations
 from pairs_tensor_constructor import construct_pairs_tensor
@@ -245,6 +245,7 @@ def run(data_fn, d_rng_i, results_fn, **kwargs):
     
     np.random.seed(args["seed"])
     random.seed(args["seed"])
+    seed_numba_rng(args["seed"])
 
     ### LOAD IN THE DATA ###
     if results.has("data"):
@@ -387,7 +388,7 @@ def run(data_fn, d_rng_i, results_fn, **kwargs):
         else:
             print("Performing direct-from-pairs-tensor sampling...")
             s = time.time()
-            dfpt_samples, dfpt_sample_log_probs = tree_sampler_DFPT.sample_trees(pairs_tensor,args["dfpt_nsamples"],parallel=args["parallel"])
+            dfpt_samples, dfpt_sample_log_probs = tree_sampler_DFPT.sample_trees(pairs_tensor,args["dfpt_nsamples"],parallel=args["parallel"],seed=args["seed"])
             # unique_samples, uniq_post, uniq_qs = dfpt_sampler.calc_uniq_samples_with_IS_posterior_prob(dfpt_samples, dfpt_sample_probs, data, fpr, adr, mutation_cluster_assignments, d_rng_i)
             log_posts = tree_sampler_DFPT.calc_sample_posts(dfpt_samples, dfpt_sample_log_probs, data, fpr, adr, mutation_cluster_assignments, d_rng_i)
             IS_adj_mat = tree_sampler_DFPT.calc_IS_adj_mat(dfpt_samples, log_posts, dfpt_sample_log_probs)
