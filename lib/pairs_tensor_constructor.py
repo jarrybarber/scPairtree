@@ -161,7 +161,6 @@ def construct_pairs_tensor(data, fpr, ado, d_rng_i, clst_ass=None, parallel=None
     clusts = np.sort(np.unique(clst_ass))
     nClusts = len(clusts)
     
-    pool = multiprocessing.Pool(parallel)
     pairwise_occurances, _ = determine_all_mutation_pair_occurance_counts(data, d_rng_i)
     args = [[model, pairwise_occurances, fpr, ado, clst_ass, clusts[c1], clusts[c2], (not ignore_coclust), quad_tol, d_rng_i] for model in mods for c1 in range(nClusts-1) for c2 in range(c1+1,nClusts)]
     # chunksize = int(np.ceil(nSNVs*nSNVs*len(mods)/2/parallel/8))
