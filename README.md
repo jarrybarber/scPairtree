@@ -103,8 +103,8 @@ Running `python bin/make_supp_figures.py --outdir OUTPUT_DIR results_file` produ
 ### Error rate parameters
 | Parameter | Default value | Description |
 | --------- | ------------- | ----------- |
-| --adr | - | Single-allele allelic dropout rate. If not set then will be estimated from the data. Must be set together with --fpr. |
-| --fpr | - | Single-allele false positive rate. If not set then will be estimated from the data. Must be set together with --adr. If both error rates are set and --cluster-mutations is used, the mutation cell fractions required for clustering are estimated with the error rates held at the input values. |
+| --adr | - | Single-allele allelic dropout rate. If not set then will be estimated from the data. Must be strictly between 0 and 1, and set together with --fpr. |
+| --fpr | - | Single-allele false positive rate. If not set then will be estimated from the data. Must be strictly between 0 and 1, and set together with --adr. If both error rates are set and --cluster-mutations is used, the mutation cell fractions required for clustering are estimated with the error rates held at the input values. |
 | --variable-adr | False | When estimating error rates, treat ADR as mutation specific. Else, ADR is treated as a global parameter for the entire dataset. |
 
 ### Mutation clustering parameters
@@ -147,3 +147,8 @@ An example of running scPairtree can be found in the directory: `scPairtree/runs
 `create_simulated_data.py` uses scPairtree's data simulator (`lib/data_simulator.py`) to generate data, and the parameters specified within it can be altered to generate different types of data. 
 
 `run_sc_pairtree.sh` runs scPairtree on the resulting data and saves the results to the `results/` directory. The html file found here can then be opened in a browser to view the consensus graph and highest probability trees resulting from the scPairtree run.
+
+## References
+A longer write up of the scPairtree method can be found [here](https://utoronto.scholaris.ca/items/1d3e7089-76e5-4545-b97f-8c43fdba4884).
+
+scPairtree is the single-cell extension of the bulk sample-based evolutionary history reconstruction software, [Pairtree](https://github.com/morrislab/pairtree), written by Jeff Wintersinger.
