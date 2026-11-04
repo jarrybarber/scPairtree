@@ -1,3 +1,5 @@
 archive
 runs/real_data
-tests
+experiments
+.pytest_cache
+__pycache__
