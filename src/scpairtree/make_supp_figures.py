@@ -1,15 +1,14 @@
 #Makes some supplementary figures for the sc_pairtree run
-import os, sys
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 import argparse
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
-from result_serializer import Results
-from pairs_tensor_plotter import plot_best_model
-from tree_plotter import plot_tree
-# from tree_util import calc_tree_llh, convert_adjmatrix_to_ancmatrix
-import tree_util
+from .result_serializer import Results
+from .pairs_tensor_plotter import plot_best_model
+from .tree_plotter import plot_tree
+# from .tree_util import calc_tree_llh, convert_adjmatrix_to_ancmatrix
+from . import tree_util
 
 def _parse_args():
     parser = argparse.ArgumentParser(

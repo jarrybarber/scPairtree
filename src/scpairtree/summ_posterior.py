@@ -1,18 +1,15 @@
 import numpy as np
 import argparse
-import os
-import sys
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
 
-import common
-import result_serializer
+from . import common
+from . import result_serializer
 # import clustermaker
 # import inputparser
 
 import json
-import util
-import tree_util
-import plotutil
+from . import util
+from . import tree_util
+from . import plotutil
 # import diversity_indices as di
 
 # import plotly.graph_objs as go

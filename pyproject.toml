@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scpairtree"
+version = "1.0.0"
+description = "Reconstructs a cancer's evolutionary history from single-cell genotype data."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Jarrett Barber" }]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.13",
+    "matplotlib>=3.9",
+    "tqdm>=4.66",
+    "numba>=0.60",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.urls]
+Repository = "https://github.com/jarrybarber/scPairtree"
+
+# Each entry creates a command that runs the given function, so after
+# installing, `scpairtree ...` is the same as the old `python bin/sc_pairtree.py ...`.
+[project.scripts]
+scpairtree = "scpairtree.cli:main"
+scpairtree-summ-posterior = "scpairtree.summ_posterior:main"
+scpairtree-supp-figures = "scpairtree.make_supp_figures:main"
+
+# Include the HTML plotting resources (JavaScript and CSS) in the package.
+[tool.setuptools.package-data]
+scpairtree = ["plot_resources/*"]
+
+[tool.pytest.ini_options]
+# Only look for tests in tests/. Without this, pytest would also try to run
+# scripts in experiments/ whose names happen to start with "test_".
+testpaths = ["tests"]
+
+# Labels that can be attached to tests with @pytest.mark.<name>.
+# --strict-markers makes a misspelled label an error rather than silently
+# creating a new one.
+markers = [
+    "slow: tests that run the full pipeline and take a while (skip with -m \"not slow\")",
+]
+addopts = "--strict-markers"

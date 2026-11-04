@@ -1,7 +1,7 @@
 import numpy as np
-from tree_util import convert_adjmatrix_to_ancmatrix
-from pairs_tensor_util import p_data_given_truth_and_errors
-from common import DataRange, DataRangeIdx
+from .tree_util import convert_adjmatrix_to_ancmatrix
+from .pairs_tensor_util import p_data_given_truth_and_errors
+from .common import DataRange, DataRangeIdx
 
 
 def _apply_errors(real_data,FPR,ADR):

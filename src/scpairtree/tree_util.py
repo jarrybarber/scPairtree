@@ -1,9 +1,9 @@
 import numpy as np
 from numba import njit
-import common
-from common import Models
-from util import find_first
-from pairs_tensor_util import p_data_given_truth_and_errors
+from . import common
+from .common import Models
+from .util import find_first
+from .pairs_tensor_util import p_data_given_truth_and_errors
 
 @njit(cache=True)
 def _get_breadth_first_traversal(adj,start_ind=0):

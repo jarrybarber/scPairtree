@@ -1,10 +1,10 @@
 import numpy as np
 
-from pairs_tensor_util import _log_p_data_given_model_phis_and_errors, p_model_given_phi
-from util import  determine_all_mutation_pair_occurance_counts
-from common import Models, DataRangeIdx, DataRange
+from .pairs_tensor_util import _log_p_data_given_model_phis_and_errors, p_model_given_phi
+from .util import  determine_all_mutation_pair_occurance_counts
+from .common import Models, DataRangeIdx, DataRange
 import time
-from util import numba_logsumexp
+from .util import numba_logsumexp
 from scipy.integrate import quad
 from numba import njit
 import matplotlib.pyplot as plt

@@ -4,12 +4,12 @@ import multiprocessing
 import time
 import queue
 import itertools
-import tree_util
+from . import tree_util
 
-from common import Models, NUM_MODELS
-from util import numba_logsumexp, seed_numba_rng
-# from tree_util import calc_tree_llh, convert_ancmatrix_to_parents, convert_parents_to_adjmatrix, convert_adjmatrix_to_ancmatrix, compute_node_relations
-from progressbar import progressbar
+from .common import Models, NUM_MODELS
+from .util import numba_logsumexp, seed_numba_rng
+# from .tree_util import calc_tree_llh, convert_ancmatrix_to_parents, convert_parents_to_adjmatrix, convert_adjmatrix_to_ancmatrix, compute_node_relations
+from .progressbar import progressbar
 
 
 def calc_posterior_norm_constant(llhs, samp_probs):

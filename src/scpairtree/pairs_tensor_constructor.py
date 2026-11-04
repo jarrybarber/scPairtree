@@ -7,10 +7,10 @@ from scipy.optimize import minimize
 from scipy.special import logsumexp
 from numba import njit
 
-from common import Models, NUM_MODELS, _EPSILON
-from util import determine_all_mutation_pair_occurance_counts
-# from pairs_tensor_util import p_data_given_model_phis_and_errors, log_p_data_given_model_phis_and_errors, p_model
-from pairs_tensor_util import log_p_cluster_data_given_model_phis_and_errors, p_cluster_data_given_model_phis_and_errors, p_model
+from .common import Models, NUM_MODELS, _EPSILON
+from .util import determine_all_mutation_pair_occurance_counts
+# from .pairs_tensor_util import p_data_given_model_phis_and_errors, log_p_data_given_model_phis_and_errors, p_model
+from .pairs_tensor_util import log_p_cluster_data_given_model_phis_and_errors, p_cluster_data_given_model_phis_and_errors, p_model
 
 # @njit
 def _2d_integrand(phi1,phi2,model,pairwise_occurances,clust1,clust2,clust_ass,fprs,ados,d_rng_i,scale):

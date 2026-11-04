@@ -3,13 +3,13 @@ from numba import njit
 import math
 import time
 
-from progressbar import progressbar
+from .progressbar import progressbar
 # import hyperparams as hparams
-import util
-import tree_util
-import common
-from common import Models, NUM_MODELS, _EPSILON
-from tree_sampler_DFPT import sample_trees as init_tree_sample_DFPT
+from . import util
+from . import tree_util
+from . import common
+from .common import Models, NUM_MODELS, _EPSILON
+from .tree_sampler_DFPT import sample_trees as init_tree_sample_DFPT
 
 from collections import namedtuple
 TreeSample = namedtuple('TreeSample', (

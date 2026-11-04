@@ -31,12 +31,20 @@ The trees sampled using either MCMC or DFPT are used to construct a consensus gr
 
 
 # Installing scPairtree
-scPairtree can be installed on Linux using conda via the following commands:
+scPairtree requires Python 3.10 or later. The easiest way to install it is with conda, which creates an environment containing scPairtree and its dependencies:
 ```
- git clone https://github.com/jarrybarber/scPairtree
- conda create -n scPairtree --file requirements.txt --yes
- conda activate scPairtree
+git clone https://github.com/jarrybarber/scPairtree
+cd scPairtree
+conda env create -f environment.yml
+conda activate scPairtree
 ```
+
+Alternatively, scPairtree can be installed into an existing Python environment with pip:
+```
+pip install git+https://github.com/jarrybarber/scPairtree
+```
+
+Either way, this installs the `scpairtree`, `scpairtree-summ-posterior` and `scpairtree-supp-figures` commands described below.
 
 scPairtree has been tested on Linux systems but should work on any Unix-like operating system (e.g. MacOS).
 
@@ -44,14 +52,12 @@ scPairtree has been tested on Linux systems but should work on any Unix-like ope
 # Running scPairtree
 
 ## Input files
-The only file required by scPairtree is a text file containing the MxN genotype matrix, with one row per mutation and one column per cell. Entries must be separated by whitespace (e.g., spaces or tabs, not commas). Parameters are passed as arguments when calling sc_pairtree.py.
+The only file required by scPairtree is a text file containing the MxN genotype matrix, with one row per mutation and one column per cell. Entries must be separated by whitespace (e.g., spaces or tabs, not commas). Parameters are passed as arguments when calling `scpairtree`.
 
 ## Output files
-Running sc_pairtree.py produces a binary results file containing all relevant information pertaining to the run. This file can be read in Python using the `Results` class in `lib/result_serializer.py`:
+Running `scpairtree` produces a binary results file containing all relevant information pertaining to the run. This file can be read in Python using the `Results` class in `scpairtree.result_serializer`:
 ```python
-import sys
-sys.path.insert(0, "path/to/scPairtree/lib")
-from result_serializer import Results
+from scpairtree.result_serializer import Results
 
 results = Results("path/to/results_file")
 pairs_tensor = results.get("pairs_tensor")
@@ -71,9 +77,19 @@ Commonly used entries include:
 
 `results.has(name)` can be used to check whether an entry is present.
 
-Running `python bin/summ_posterior.py [--runid RUN_ID] results_file output.html` uses the results file to produce an HTML file. Opening this in a browser loads an interactive tool to visually inspect the high-probability trees sampled from the MCMC run as well as the consensus graph resulting from the sampled trees.
+Running `scpairtree-summ-posterior [--runid RUN_ID] results_file output.html` uses the results file to produce an HTML file. Opening this in a browser loads an interactive tool to visually inspect the high-probability trees sampled from the MCMC run as well as the consensus graph resulting from the sampled trees.
 
-Running `python bin/make_supp_figures.py --outdir OUTPUT_DIR results_file` produces supplementary figures for the run, such as the pairs matrix, the estimated error rates, the log-likelihood trace of each MCMC chain and the highest-likelihood tree. If the true tree, mutation clusters or cell clusters are known (e.g., for simulated data), these can be passed with `--act-tree-anc-fn`, `--act-mut-clust-fn` and `--act-cell-clust-fn` to compare against them.
+Running `scpairtree-supp-figures --outdir OUTPUT_DIR results_file` produces supplementary figures for the run, such as the pairs matrix, the estimated error rates, the log-likelihood trace of each MCMC chain and the highest-likelihood tree. If the true tree, mutation clusters or cell clusters are known (e.g., for simulated data), these can be passed with `--act-tree-anc-fn`, `--act-mut-clust-fn` and `--act-cell-clust-fn` to compare against them.
+
+## Running from Python
+scPairtree can also be run from a Python script. The keyword arguments have the same names as the command-line parameters below, with dashes replaced by underscores:
+```python
+from scpairtree.cli import run
+
+if __name__ == "__main__":
+    run("data.txt", 2, "results_file", seed=1000, trees_per_chain=5000)
+```
+The `if __name__ == "__main__":` guard is required, because scPairtree runs MCMC chains in separate processes, each of which re-imports the script that started it.
 
 ## Parameters
 ### Input and output parameters
@@ -146,20 +162,19 @@ MCMC convergence checking is enabled by setting all three of --convergence-thres
 ## Example
 An example of running scPairtree can be found in the directory: `scPairtree/runs/example/`. From here one can create simulated data using the `create_simulated_data.py` script, and run scPairtree using the `run_sc_pairtree.sh` script. 
 
-`create_simulated_data.py` uses scPairtree's data simulator (`lib/data_simulator.py`) to generate data, and the parameters specified within it can be altered to generate different types of data. 
+`create_simulated_data.py` uses scPairtree's data simulator (`scpairtree.data_simulator`) to generate data, and the parameters specified within it can be altered to generate different types of data. 
 
 `run_sc_pairtree.sh` runs scPairtree on the resulting data and saves the results to the `results/` directory. The html file found here can then be opened in a browser to view the consensus graph and highest probability trees resulting from the scPairtree run.
 
 ## Testing scPairtree
-We use [pytest](https://docs.pytest.org) to carry out robust testing of scPairtree. To perform this testing, run the following commands from the repository root with the scPairtree environment activated:
+We use [pytest](https://docs.pytest.org) to carry out robust testing of scPairtree. To perform this testing, run the following command from the repository root with the scPairtree environment activated:
 ```
-conda install pytest
 pytest                 # run all tests
 ```
+If scPairtree was installed with pip rather than from `environment.yml`, first install it from the cloned repository with `pip install -e ".[test]"`, which also installs pytest.
 
 Alternatively, the slower accuracy tests can be skipped with this command:
 ```
-conda install pytest
 pytest -m "not slow"   # skip the slower end-to-end accuracy tests
 ```
 

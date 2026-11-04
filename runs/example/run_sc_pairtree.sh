@@ -1,5 +1,4 @@
 EXDIR=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
-SCP_BINDIR=$EXDIR/../../bin
 DATADIR=$EXDIR/data
 RESDIR=$EXDIR/results
 
@@ -21,7 +20,7 @@ function run {
     out_fn=$RESDIR/$filename
     supp_fig_dir=$RESDIR/supp_figs
     
-    python $SCP_BINDIR/sc_pairtree.py \
+    scpairtree \
                         --data-fn $data_fn \
                         --results-fn $out_fn \
                         --data-range $d_rng_id \
@@ -32,12 +31,12 @@ function run {
                         --burnin $burnin \
                         --thinned-frac $thin_frac 
 
-    python $SCP_BINDIR/summ_posterior.py \
+    scpairtree-summ-posterior \
                         --runid $filename \
                         $out_fn \
                         $RESDIR/$filename.summary.html
 
-    python  $SCP_BINDIR/make_supp_figures.py \
+    scpairtree-supp-figures \
                         $out_fn \
                         --seed $seed \
                         --outdir $supp_fig_dir \

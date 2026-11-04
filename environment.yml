@@ -1,0 +1,18 @@
+# Creates a conda environment with scPairtree installed:
+#   conda env create -f environment.yml
+name: scPairtree
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.10
+  - numpy>=1.26
+  - scipy>=1.13
+  - matplotlib-base>=3.9
+  - tqdm>=4.66
+  - numba>=0.60
+  - pytest>=8
+  - pip
+  - pip:
+      # Installs scPairtree itself from this folder. -e (editable) means
+      # changes to the code, e.g. after a `git pull`, take effect immediately.
+      - -e .

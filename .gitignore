@@ -3,3 +3,5 @@ runs/real_data
 experiments
 .pytest_cache
 __pycache__
+build
+*.egg-info

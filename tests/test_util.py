@@ -3,7 +3,7 @@ import pytest
 from numba import njit
 from scipy.special import logsumexp
 
-import util
+from scpairtree import util
 
 
 # ---- find_first ----

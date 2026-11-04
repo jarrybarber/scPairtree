@@ -1,13 +1,10 @@
-import sys, os
+import os
 import numpy as np
 import random
+from scpairtree.data_simulator import generate_simulated_data
+from scpairtree.tree_util import convert_adjmatrix_to_ancmatrix
+from scpairtree import tree_plotter
 ex_dir = os.path.dirname(os.path.abspath(__file__))
-scp_dir = os.path.abspath(os.path.join(ex_dir,"../.."))
-sys.path.append(os.path.abspath(os.path.join(scp_dir,"lib")))
-sys.path.append(os.path.abspath(os.path.join(scp_dir,"bin")))
-from data_simulator import generate_simulated_data
-from tree_util import convert_adjmatrix_to_ancmatrix
-import tree_plotter
 
 
 def main():

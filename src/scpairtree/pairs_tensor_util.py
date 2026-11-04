@@ -1,6 +1,6 @@
 import numpy as np
 from numba import njit
-from common import Models, DataRangeIdx, DataRange, get_d_range
+from .common import Models, DataRangeIdx, DataRange, get_d_range
 
 ISCLOSE_TOLERANCE = 1e-8
 

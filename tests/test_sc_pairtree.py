@@ -1,9 +1,9 @@
 import numpy as np
 import pytest
 
-from sc_pairtree import run
-from result_serializer import Results
-from data_simulator import generate_simulated_data
+from scpairtree.cli import run
+from scpairtree.result_serializer import Results
+from scpairtree.data_simulator import generate_simulated_data
 
 # These tests call run(), the same function the command line uses, so they
 # exercise the whole pipeline on a tiny simulated dataset.

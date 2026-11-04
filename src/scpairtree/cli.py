@@ -1,27 +1,24 @@
 import argparse
 import os
-from pickle import NONE
-import sys
 import numpy as np
 import multiprocessing
 import random
 import time
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
 # import hyperparams as hyperparams
-from util import load_data, seed_numba_rng
-from error_rate_estimator import estimate_error_rates, estimate_phis
-from mutation_clusterer import cluster_mutations
-from pairs_tensor_constructor import construct_pairs_tensor
-from tree_sampler_MCMC import sample_trees, compute_posterior
-from result_serializer import Results
-from default_args import DEFAULT_SCP_ARGS
-import tree_sampler_DFPT
+from .util import load_data, seed_numba_rng
+from .error_rate_estimator import estimate_error_rates, estimate_phis
+from .mutation_clusterer import cluster_mutations
+from .pairs_tensor_constructor import construct_pairs_tensor
+from .tree_sampler_MCMC import sample_trees, compute_posterior
+from .result_serializer import Results
+from .default_args import DEFAULT_SCP_ARGS
+from . import tree_sampler_DFPT
 
 
 def _parse_args():
     parser = argparse.ArgumentParser(
-        prog='sc_pairtree',
+        prog='scpairtree',
         description="""
                     Build clone trees using single-cell genotype matrices as input. 
                     See Readme.md for more information.

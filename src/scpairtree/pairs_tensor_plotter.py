@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 
-from common import Models
+from .common import Models
 
 def plot_raw_scores(tensor, show_fig=False, save_fig=True, outdir="", save_name = "raw_scores.png"):
     

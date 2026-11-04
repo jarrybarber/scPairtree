@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-import tree_util
-from common import Models
+from scpairtree import tree_util
+from scpairtree.common import Models
 
 # A small hand-built tree used by every test in this file. Node 0 is the root.
 #

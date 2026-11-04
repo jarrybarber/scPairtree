@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-import pairs_tensor_util as ptu
-from common import Models, DataRange
+from scpairtree import pairs_tensor_util as ptu
+from scpairtree.common import Models, DataRange
 
 # Most functions here return probabilities, so for most inputs there's no
 # hand-calculated "right answer" to compare against. Instead, these tests check

@@ -5,10 +5,10 @@
 import numpy as np
 from scipy.optimize import minimize
 
-from pairs_tensor_util import _log_p_data_given_model_phis_and_errors, p_phi_given_model, p_model_given_phi
-from util import  determine_all_mutation_pair_occurance_counts
-from common import Models, DataRangeIdx, DataRange
-from common import _EPSILON
+from .pairs_tensor_util import _log_p_data_given_model_phis_and_errors, p_phi_given_model, p_model_given_phi
+from .util import  determine_all_mutation_pair_occurance_counts
+from .common import Models, DataRangeIdx, DataRange
+from .common import _EPSILON
 from numba import njit
 
 # def _old_non_njit_calc_to_min_val(alphas,betas,phis,pairwise_occurances,d_rng_i):

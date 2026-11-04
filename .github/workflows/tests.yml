@@ -1,6 +1,6 @@
-# Runs the test suite on a fresh machine whenever code is pushed to main or a
-# pull request is opened. The install steps mirror the README, so this also
-# checks that the README's installation instructions work.
+# Runs the test suite on fresh machines whenever code is pushed to main or a
+# pull request is opened, and once a week. The install steps mirror the two
+# installation methods in the README, so this also checks that they work.
 name: tests
 
 on:
@@ -8,16 +8,47 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:  # adds a "Run workflow" button on GitHub's Actions tab
+  schedule:
+    # Every Monday at 06:00 UTC. Dependencies are only given minimum versions,
+    # so new releases of numpy, numba, etc. can break scPairtree even when its
+    # own code hasn't changed. A weekly run catches this.
+    - cron: "0 6 * * 1"
 
 jobs:
-  test:
+  pip:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
-    env:
-      # Anaconda's default channel requires accepting its Terms of Service,
-      # which conda would otherwise ask about interactively.
-      CONDA_PLUGINS_AUTO_ACCEPT_TOS: "yes"
+    # The matrix runs this job once per entry: here, on the oldest and newest
+    # Python versions scPairtree supports.
+    strategy:
+      fail-fast: false  # if one version fails, still finish the other
+      matrix:
+        python-version: ["3.10", "3.14"]
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # Not an editable install, so the tests run against the installed copy
+      # of scPairtree. This catches files missing from the package.
+      - name: Install scPairtree
+        run: pip install ".[test]"
+
+      - name: Show installed versions
+        run: pip list
+
+      - name: Run tests
+        run: pytest -v
+
+  conda:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     defaults:
       run:
@@ -31,12 +62,10 @@ jobs:
       - name: Install conda
         uses: conda-incubator/setup-miniconda@v3
         with:
-          miniconda-version: latest
+          miniforge-version: latest  # a conda install that uses conda-forge
 
       - name: Create the scPairtree environment
-        run: |
-          conda create -n scPairtree --file requirements.txt --yes
-          conda install -n scPairtree pytest --yes
+        run: conda env create -f environment.yml
 
       - name: Show installed versions
         run: |

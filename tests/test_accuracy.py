@@ -1,10 +1,10 @@
 import numpy as np
 import pytest
 
-from sc_pairtree import run
-from result_serializer import Results
-from data_simulator import generate_simulated_data
-import tree_util
+from scpairtree.cli import run
+from scpairtree.result_serializer import Results
+from scpairtree.data_simulator import generate_simulated_data
+from scpairtree import tree_util
 
 # End-to-end accuracy tests: simulate data from a known tree, run scPairtree,
 # and check that it recovers something close to the truth. Unlike the other
