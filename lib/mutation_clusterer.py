@@ -4,7 +4,6 @@ from pairs_tensor_util import _log_p_data_given_model_phis_and_errors, p_model_g
 from util import  determine_all_mutation_pair_occurance_counts
 from common import Models, DataRangeIdx, DataRange
 import time
-# from scipy.special import logsumexp
 from util import numba_logsumexp
 from scipy.integrate import quad
 from numba import njit
@@ -212,7 +211,7 @@ def _update_pi(i, pairwise_occurances, n_mut, n_clust, fprs, adrs, phis, pis, es
         phi_new_cluster = est_mut_phis[i] #n_1s/(n_1s + n_0s) #np.random.rand() #May want to change this in the future to be based on the number of times this mutation is observed
         this_phis = np.append(phis, phi_new_cluster) #Note: new cluster phi will be ignored if mut_i is currently the sole member of a cluster
     else:
-        print(n_mut_in_clust)
+        # print(n_mut_in_clust)
         raise Exception("The number of mutations in a cluster is less than 1. Something has gone wrong.")
 
     pis_wo_i = np.delete(pis,i)

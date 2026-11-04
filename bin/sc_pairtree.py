@@ -29,14 +29,6 @@ def _parse_args():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     
-    #TODO: describe required data structure for mut_id_fn
-    #TODO: double check that inputting adr and fnr works as expected
-    #TODO: Perhaps have default values for MCMC convergence checking, and add in a parameter that enables convergence checking.
-    #TODO: Allow passing a parameter file.
-    #TODO: Finish readme file.
-    #TODO: Rename thinned_fraction. The name kind of implies the opposite of what the value represents (the fraction of samples that are kept).
-
-    
     # Input and output files
     parser.add_argument('--data-fn', dest='data_fn', required=True,
                         help='Path to the csv data file. This should contain an MxN genotype matrix, where M is the number of mutations and N is the number of cells.')
@@ -151,6 +143,11 @@ def _check_args_for_errors(args):
     if (args['fpr'] is not None) or (args['adr'] is not None):
         if np.logical_xor((args['fpr'] is None), (args['adr'] is None)):
             raise ValueError("scPairtree requires either both error rates to be input or neither to be input. Please set both using:\n - --adr [float]\n - --fpr [float]")
+        # Rates of exactly 0 or 1 make some observed data impossible under every model,
+        # which leaves pairs tensor entries as nan.
+        for rate in ('fpr', 'adr'):
+            if np.any(np.asarray(args[rate]) <= 0) or np.any(np.asarray(args[rate]) >= 1):
+                raise ValueError(f"--{rate} must be strictly between 0 and 1.")
     if args['only_estimate_errors'] and args['only_build_tensor']:
         raise ValueError("Both --only-estimate-errors and --only-build-tensor cannot both be set at the same time.")
     if args['only_estimate_errors'] and args['fpr'] is not None and args['adr'] is not None:

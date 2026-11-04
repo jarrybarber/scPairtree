@@ -199,6 +199,9 @@ def _log_p_data_given_model_phis_and_errors(model, pairwise_occurances, fpr_a, f
     log_p_data = np.log(phi_pri)    
     for i,d_i in enumerate(d_rng):
         for j,d_j in enumerate(d_rng):
+            if pairwise_occurances[i,j] == 0:
+                continue
+            
             to_sum = 0
             for t_n in (0,1):
                 for t_m in (0,1):
