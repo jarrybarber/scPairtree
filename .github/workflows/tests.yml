@@ -1,0 +1,49 @@
+# Runs the test suite on a fresh machine whenever code is pushed to main or a
+# pull request is opened. The install steps mirror the README, so this also
+# checks that the README's installation instructions work.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:  # adds a "Run workflow" button on GitHub's Actions tab
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      # Anaconda's default channel requires accepting its Terms of Service,
+      # which conda would otherwise ask about interactively.
+      CONDA_PLUGINS_AUTO_ACCEPT_TOS: "yes"
+
+    defaults:
+      run:
+        # A login shell, so that `conda activate` works in each step.
+        shell: bash -el {0}
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: latest
+
+      - name: Create the scPairtree environment
+        run: |
+          conda create -n scPairtree --file requirements.txt --yes
+          conda install -n scPairtree pytest --yes
+
+      - name: Show installed versions
+        run: |
+          conda activate scPairtree
+          conda list
+
+      - name: Run tests
+        run: |
+          conda activate scPairtree
+          pytest -v

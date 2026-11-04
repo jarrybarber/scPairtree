@@ -1,3 +1,5 @@
+[![tests](https://github.com/jarrybarber/scPairtree/actions/workflows/tests.yml/badge.svg)](https://github.com/jarrybarber/scPairtree/actions/workflows/tests.yml)
+
 # Overview
 scPairtree reconstructs a cancer's evolutionary history using a single-cell genotype matrix as input. scPairtree implements an MCMC tree sampling algorithm that is guided by a 'pairs tensor', an object that stores pairwise relationship probability estimates between mutations. By making use of an MCMC algorithm, scPairtree is able to provide uncertainty in the inferred evolutionary history reconstruction. scPairtree works well on datasets with up to several hundred mutations and thousands of cells. Using default parameters, scPairtree performs the following steps:
 
@@ -148,7 +150,21 @@ An example of running scPairtree can be found in the directory: `scPairtree/runs
 
 `run_sc_pairtree.sh` runs scPairtree on the resulting data and saves the results to the `results/` directory. The html file found here can then be opened in a browser to view the consensus graph and highest probability trees resulting from the scPairtree run.
 
-## References
+## Testing scPairtree
+We use [pytest](https://docs.pytest.org) to carry out robust testing of scPairtree. To perform this testing, run the following commands from the repository root with the scPairtree environment activated:
+```
+conda install pytest
+pytest                 # run all tests
+```
+
+Alternatively, the slower accuracy tests can be skipped with this command:
+```
+conda install pytest
+pytest -m "not slow"   # skip the slower end-to-end accuracy tests
+```
+
+# References
 A longer write up of the scPairtree method can be found [here](https://utoronto.scholaris.ca/items/1d3e7089-76e5-4545-b97f-8c43fdba4884).
 
 scPairtree is the single-cell extension of the bulk sample-based evolutionary history reconstruction software, [Pairtree](https://github.com/morrislab/pairtree), written by Jeff Wintersinger.
+
